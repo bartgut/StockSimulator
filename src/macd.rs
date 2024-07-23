@@ -6,6 +6,11 @@ pub struct Macd {
     signal_period_ema: Ema
 }
 
+pub struct MACDResult {
+    pub macd_line: f32,
+    pub signal_line: f32
+}
+
 impl Macd {
     pub fn new(fast_period: usize, slow_period: usize, signal_period: usize) -> Self {
         Self {
@@ -15,11 +20,14 @@ impl Macd {
         }
     }
 
-    pub fn next(&mut self, price: f32) -> (f32, f32) {
+    pub fn next(&mut self, price: f32) -> MACDResult {
         let fast_ema = self.fast_period_ema.next(price);
         let slow_ema = self.slow_period_ema.next(price);
         let macd_line = fast_ema - slow_ema;
-        let signal_ema = self.signal_period_ema.next(macd_line);
-        (macd_line, signal_ema)
+        let signal_line = self.signal_period_ema.next(macd_line);
+        MACDResult {
+            macd_line,
+            signal_line
+        }
     }
 }

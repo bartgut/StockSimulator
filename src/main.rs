@@ -1,15 +1,20 @@
-mod macd;
-mod ema;
-
 use std::error::Error;
+
 use charming::{Chart, ImageRenderer};
 use charming::component::{Axis, Legend, Title};
 use charming::element::{AxisType, LineStyle, LineStyleType};
+use charming::series::Bar;
 use charming::series::Line;
-use crate::ema::Ema;
+
+use crate::keltner_channel::KeltnerChannel;
 use crate::macd::Macd;
 
-#[derive(Debug, serde::Deserialize)]
+mod macd;
+mod ema;
+mod atr;
+mod keltner_channel;
+
+#[derive(Debug, serde::Deserialize, Clone)]
 struct StockPriceInfo {
     #[serde(rename = "<TICKER>")]
     ticker: String,
@@ -47,17 +52,27 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let mut macd = Macd::new(12, 26, 9);
-    //stock_date.reverse();
-    //stock_date.truncate(60);
-    //stock_date.reverse();
+    let mut keltner_channel = KeltnerChannel::new(20);
 
     let mut macd_fast_line_vec = vec![];
     let mut macd_signal_line_vec = vec![];
+    let mut macd_histogram = vec![];
+    let mut ema_line_vec = vec![];
+    let mut lower_band_vec = vec![];
+    let mut upper_band_vec = vec![];
+    let mut previous_date: Option<StockPriceInfo> = None;
 
-    for price in stock_date.iter().map(|x| x.close) {
-        let (fast_res, signal_res) = macd.next(price);
-        macd_signal_line_vec.push(signal_res);
-        macd_fast_line_vec.push(fast_res)
+    for day in stock_date.iter() {
+        let macd_result = macd.next(day.close);
+        let keltner_channel_result =
+            keltner_channel.next(day.close, day.high, day.low, previous_date.map(|u| u.close).unwrap_or(0.0f32));
+        ema_line_vec.push(keltner_channel_result.ema);
+        upper_band_vec.push(keltner_channel_result.upper_band);
+        lower_band_vec.push(keltner_channel_result.lower_band);
+        macd_signal_line_vec.push(macd_result.signal_line);
+        macd_fast_line_vec.push(macd_result.macd_line);
+        macd_histogram.push(macd_result.macd_line - macd_result.signal_line);
+        previous_date = Some(day.clone())
     }
     let chart = Chart::new()
         .title(Title::new().top("ZEP ticker"))
@@ -65,8 +80,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         .x_axis(Axis::new().type_(AxisType::Category))
         .y_axis(Axis::new().type_(AxisType::Value))
         .series(Line::new().data(stock_date.iter().map(|x| x.close).collect()))
+        .series(Line::new().data(ema_line_vec))
+        .series(Line::new().line_style(LineStyle::new().color("blue")).data( upper_band_vec))
+        .series(Line::new().line_style(LineStyle::new().color("blue")).data(lower_band_vec))
         .series(Line::new().line_style(LineStyle::new().color("green").type_(LineStyleType::Dashed)).data(macd_signal_line_vec))
-        .series(Line::new().line_style(LineStyle::new().color("red")).data(macd_fast_line_vec));
+        .series(Line::new().line_style(LineStyle::new().color("red")).data(macd_fast_line_vec))
+        .series(Bar::new().data(macd_histogram));
 
     let mut renderer = ImageRenderer::new(5000, 4000);
     let res = renderer.save(&chart, "zep.svg");
