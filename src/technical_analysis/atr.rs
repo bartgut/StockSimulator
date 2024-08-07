@@ -1,4 +1,4 @@
-use crate::ema::Ema;
+use crate::technical_analysis::ema::Ema;
 
 pub struct Atr {
     atr_ema: Ema

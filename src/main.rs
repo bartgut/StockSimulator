@@ -7,18 +7,15 @@ use charming::series::Bar;
 use charming::series::Line;
 use crate::broker_fee::PricePercentageFee;
 
-use crate::keltner_channel::KeltnerChannel;
-use crate::macd::Macd;
 use crate::stop_loss_strategy::{NoStopLoss, PercentageStopLoss};
 use crate::strategy_simulator::StrategySimulator;
+use crate::technical_analysis::keltner_channel::KeltnerChannel;
 
-mod macd;
-mod ema;
-mod atr;
-mod keltner_channel;
 mod strategy_simulator;
 mod stop_loss_strategy;
 mod broker_fee;
+mod technical_analysis;
+mod strategies;
 
 #[derive(Debug, serde::Deserialize, Clone)]
 struct StockPriceInfo {
@@ -61,7 +58,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut keltner_channel = KeltnerChannel::new(20); */
     let mut simulator =
         StrategySimulator::new(10000.0f32,
-                               Box::new(KeltnerChannel::new(20)),
+                               Box::new(KeltnerChannel::new(20, 2.0)),
                                Box::new(PercentageStopLoss::new(0.1)),
                                Box::new(PricePercentageFee::new(0.0035)));
 
