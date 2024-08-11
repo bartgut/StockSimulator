@@ -1,1 +1,2 @@
 pub mod keltner_channel_investing_strategy;
+mod growing_ema_investing_strategy;

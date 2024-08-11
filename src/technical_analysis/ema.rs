@@ -14,6 +14,10 @@ impl Ema {
         return self.current_ema;
     }
 
+    pub fn current(&self) -> f32 {
+        return self.current_ema
+    }
+
     fn k_param(&self) -> f32 {
         2.0f32 / ((self.length as f32) + 1.0f32)
     }

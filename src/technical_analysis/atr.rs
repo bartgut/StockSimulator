@@ -16,4 +16,8 @@ impl Atr {
         let true_range = one.max(two).max(three);
         self.atr_ema.next(true_range)
     }
+
+    pub fn current(&self) -> f32 {
+        return self.atr_ema.current()
+    }
 }
