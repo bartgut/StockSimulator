@@ -1,4 +1,10 @@
 use std::error::Error;
+use std::{fs, io};
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+use rayon::prelude::*;
+
 
 use charming::{Chart, ImageRenderer, series};
 use charming::component::{Axis, Legend, Title};
@@ -7,15 +13,16 @@ use charming::series::Line;
 
 use crate::broker_fee::PricePercentageFee;
 use crate::stop_loss_strategy::PercentageStopLoss;
+use crate::strategies::growing_ema_investing_strategy::GrowingEmaStrategy;
 use crate::strategy_simulator::StrategySimulator;
 use crate::strategy_simulator::TradeResult::{Buy, Sell, StopLoss};
-use crate::technical_analysis::ema::Ema;
-use crate::technical_analysis::keltner_channel::KeltnerChannel;
+use crate::technical_indicator::ema::Ema;
+use crate::technical_indicator::keltner_channel::KeltnerChannel;
 
 mod strategy_simulator;
 mod stop_loss_strategy;
 mod broker_fee;
-mod technical_analysis;
+mod technical_indicator;
 mod strategies;
 
 #[derive(Debug, serde::Deserialize, Clone)]
@@ -42,33 +49,37 @@ struct StockPriceInfo {
     openint: u32
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let mut stock_date = vec![];
+
+fn process_ticker(file_path: &Path) -> io::Result<f32> {
+    let mut cash_after_last_sell: f32 = 0.0;
+    let file_name_str = file_path.file_name().unwrap().to_str().unwrap();
+    println!("Simulating strategy for {}", file_name_str);
+    let mut stock_data = vec![];
     let mut reader = csv::ReaderBuilder::new()
         .delimiter(b',')
         .has_headers(true)
-        .from_path("crsp.us.txt")?;
-
+        .from_path(file_path)?;
 
     for record in reader.deserialize() {
         let stock_price_info: StockPriceInfo = record?;
-        stock_date.push(stock_price_info)
+        stock_data.push(stock_price_info)
     }
 
-    let mut keltner_channel = KeltnerChannel::new(20, 2.0);
-    let mut keltner_simulator =
+
+    let mut keltner_channel_simulator =
         StrategySimulator::new(10000.0f32,
                                Box::new(KeltnerChannel::new(20, 2.0)),
                                Box::new(PercentageStopLoss::new(0.1)),
                                Box::new(PricePercentageFee::new(0.0035)));
+
+
     let mut growing_ema_simulator =
         StrategySimulator::new(10000.0f32,
-                               Box::new(Ema::new(40)),
+                               Box::new(GrowingEmaStrategy::new(20, 20.0, -10.0)),
                                Box::new(PercentageStopLoss::new(0.1)),
                                Box::new(PricePercentageFee::new(0.0035)));
 
-
-
+    let mut keltner_channel = KeltnerChannel::new(20, 2.0);
 
     let mut ema_line_vec = vec![];
     let mut lower_band_vec = vec![];
@@ -78,16 +89,20 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut stop_loss_operation = vec![];
     let mut previous_date: Option<StockPriceInfo> = None;
 
-    for (index, day) in stock_date.iter().enumerate() {
+
+    for (index, day) in stock_data.iter().enumerate() {
         let keltner_channel_result =
             keltner_channel.next(day.close, day.high, day.low, previous_date.clone().map(|u| u.close).unwrap_or(0.0f32));
 
-        //let operations_performed = growing_ema_simulator.next(day, &previous_date);
-        let operations_performed = keltner_simulator.next(day, &previous_date);
+        let operations_performed = growing_ema_simulator.next(day, &previous_date);
+        //let operations_performed = keltner_channel_simulator.next(day, &previous_date);
         for operation_performed in operations_performed {
             match operation_performed {
                 Buy(buy_trade) => buy_operation.push(vec![index as f32, buy_trade.price]),
-                Sell(sell_trade) => sell_operation.push(vec![index as f32, sell_trade.price]),
+                Sell(sell_trade) => {
+                    sell_operation.push(vec![index as f32, sell_trade.price]);
+                    cash_after_last_sell = sell_trade.after_operation_cash
+                }
                 StopLoss(stop_loss_trade) => stop_loss_operation.push(vec![index as f32, stop_loss_trade.price])
             }
         }
@@ -98,11 +113,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         previous_date = Some(day.clone())
     }
     let chart = Chart::new()
-        .title(Title::new().top("DELL ticker"))
+        .title(Title::new().top("Ticker"))
         .legend(Legend::new().top("bottom"))
         .x_axis(Axis::new().type_(AxisType::Category))
         .y_axis(Axis::new().type_(AxisType::Value))
-        .series(Line::new().data(stock_date.iter().map(|x| x.close).collect()))
+        .series(Line::new().data(stock_data.iter().map(|x| x.close).collect()))
         .series(Line::new().data(ema_line_vec))
         .series(Line::new().line_style(LineStyle::new().color("blue")).data(upper_band_vec))
         .series(Line::new().line_style(LineStyle::new().color("blue")).data(lower_band_vec))
@@ -112,7 +127,38 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 
     let mut renderer = ImageRenderer::new(5000, 4000);
-    let res = renderer.save(&chart, "zep.svg");
-    println!("{:?}", res);
+    let res = renderer.save(&chart, format!("ticker_images/{}.svg", file_name_str));
+    Ok(cash_after_last_sell)
+}
+
+fn process_directory(dir_path: &Path) -> HashMap<String, f32> {
+    let mut result_map: Arc<Mutex<HashMap<String, f32>>> = Arc::new(Mutex::new(HashMap::new()));
+
+    let files: Vec<_> = fs::read_dir(dir_path).unwrap()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|entry| entry.is_file())
+        .collect();
+
+    files.par_iter().for_each(|filepath| {
+        let result = process_ticker(filepath);
+        let mut map_unlocked = result_map.lock().unwrap();
+        let file_name = filepath.file_name().unwrap().to_str().unwrap();
+        map_unlocked.insert(file_name.to_ascii_lowercase(), result.unwrap());
+    });
+
+    Arc::try_unwrap(result_map)
+        .expect("sth went wrong")
+        .into_inner()
+        .unwrap()
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let map = process_directory(Path::new("wse"));
+    let mut vec_tuple: Vec<(String, f32)> = map.into_iter().collect();
+    vec_tuple.sort_by(|a,b| b.1.partial_cmp(&a.1).unwrap());
+    for (ticker, accumulated_cash) in vec_tuple {
+        println!("Ticker: {} - {}", ticker, accumulated_cash)
+    }
     Ok(())
 }

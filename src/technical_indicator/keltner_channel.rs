@@ -1,5 +1,5 @@
-use crate::technical_analysis::atr::Atr;
-use crate::technical_analysis::ema::Ema;
+use crate::technical_indicator::atr::Atr;
+use crate::technical_indicator::ema::Ema;
 
 pub struct KeltnerChannel {
     channel_size: f32,

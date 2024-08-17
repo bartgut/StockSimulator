@@ -1,6 +1,6 @@
 use crate::StockPriceInfo;
 use crate::strategy_simulator::InvestingStrategy;
-use crate::technical_analysis::keltner_channel::{KeltnerChannel, KeltnerChannelResult};
+use crate::technical_indicator::keltner_channel::{KeltnerChannel, KeltnerChannelResult};
 
 pub struct KeltnerChannelStrategyResult {
     yesterday: KeltnerChannelResult,
@@ -16,12 +16,10 @@ impl InvestingStrategy<KeltnerChannelStrategyResult> for KeltnerChannel {
     }
 
     fn buy_signal(&self, stock_price_info: &StockPriceInfo, indicator_data: &KeltnerChannelStrategyResult) -> Option<f32> {
-        if indicator_data.today.lower_band >= stock_price_info.low && indicator_data.today.lower_band >= stock_price_info.close {
-            //if calculate_inclination(indicator_data.yesterday.ema, indicator_data.today.ema) > 0.0 {
-                Some(stock_price_info.close)
-            //} else {
-            //    None
-            //}
+        let keltner_buy = indicator_data.today.lower_band - stock_price_info.close;
+        let signal = keltner_buy;
+        if signal > 0.0 {
+            Some(stock_price_info.close)
         } else {
             None
         }
@@ -36,3 +34,8 @@ impl InvestingStrategy<KeltnerChannelStrategyResult> for KeltnerChannel {
     }
 }
 
+fn calculate_inclination(yesterday_ema: f32, today_ema: f32) -> f32 {
+    let m = today_ema - yesterday_ema;
+    let theta_radians = m.atan();
+    theta_radians.to_degrees()
+}

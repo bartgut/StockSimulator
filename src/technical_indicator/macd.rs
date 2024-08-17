@@ -1,4 +1,4 @@
-use crate::technical_analysis::ema::Ema;
+use crate::technical_indicator::ema::Ema;
 
 pub struct Macd {
     fast_period_ema: Ema,

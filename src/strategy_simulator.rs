@@ -21,7 +21,8 @@ pub struct StrategySimulator<T> {
 
 pub struct Trade {
     pub operation_date: String,
-    pub price: f32
+    pub price: f32,
+    pub after_operation_cash: f32
 }
 
 pub enum TradeResult {
@@ -51,7 +52,8 @@ impl<T> StrategySimulator<T>  {
                 println!("{}: Selling at {}, cash: {}", today.date, sell_price, self.cash);
                 operations_performed.push(Sell(Trade {
                     operation_date: today.date.clone(),
-                    price: sell_price
+                    price: sell_price,
+                    after_operation_cash: self.cash
                 }));
             }
             if let Some(stop_loss_price) = self.stop_loss.should_trigger_stop_loss(today, self.last_buy_price) {
@@ -59,7 +61,8 @@ impl<T> StrategySimulator<T>  {
                 println!("{}: Stop loss triggered at {}, cash: {}", today.date, stop_loss_price, self.cash);
                 operations_performed.push(StopLoss(Trade {
                     operation_date: today.date.clone(),
-                    price: stop_loss_price
+                    price: stop_loss_price,
+                    after_operation_cash: self.cash,
                 }))
             }
         }
@@ -69,7 +72,8 @@ impl<T> StrategySimulator<T>  {
                 println!("{}: Buying at {} number of shares: {}, cash left: {}", today.date, buy_price, self.current_position, self.cash);
                 operations_performed.push(Buy(Trade {
                     operation_date: today.date.clone(),
-                    price: buy_price
+                    price: buy_price,
+                    after_operation_cash: self.cash,
                 }))
             }
         }
