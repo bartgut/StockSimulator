@@ -1,29 +1,32 @@
-use std::error::Error;
 use std::{fs, io};
 use std::collections::HashMap;
+use std::error::Error;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use rayon::prelude::*;
-
 
 use charming::{Chart, ImageRenderer, series};
 use charming::component::{Axis, Legend, Title};
 use charming::element::{AxisType, ItemStyle, LineStyle};
 use charming::series::Line;
+use chrono::NaiveDate;
+use rayon::prelude::*;
+use serde::Deserialize;
 
 use crate::broker_fee::PricePercentageFee;
 use crate::stop_loss_strategy::PercentageStopLoss;
 use crate::strategies::growing_ema_investing_strategy::GrowingEmaStrategy;
 use crate::strategy_simulator::StrategySimulator;
 use crate::strategy_simulator::TradeResult::{Buy, Sell, StopLoss};
-use crate::technical_indicator::ema::Ema;
 use crate::technical_indicator::keltner_channel::KeltnerChannel;
+use crate::serde_serialization::naive_date_yyyymmdd_format::naive_date_yyyymmdd_format;
+
 
 mod strategy_simulator;
 mod stop_loss_strategy;
 mod broker_fee;
 mod technical_indicator;
 mod strategies;
+mod serde_serialization;
 
 #[derive(Debug, serde::Deserialize, Clone)]
 struct StockPriceInfo {
@@ -31,8 +34,8 @@ struct StockPriceInfo {
     ticker: String,
     #[serde(rename = "<PER>")]
     per: String,
-    #[serde(rename = "<DATE>")]
-    date: String,
+    #[serde(rename = "<DATE>", with = "naive_date_yyyymmdd_format")]
+    date: NaiveDate,
     #[serde(rename = "<TIME>")]
     time: String,
     #[serde(rename = "<OPEN>")]

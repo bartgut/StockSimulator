@@ -1,4 +1,5 @@
 use std::cmp::max;
+use chrono::NaiveDate;
 use crate::broker_fee::BrokerFee;
 use crate::StockPriceInfo;
 use crate::stop_loss_strategy::StopLossTrigger;
@@ -20,7 +21,7 @@ pub struct StrategySimulator<T> {
 }
 
 pub struct Trade {
-    pub operation_date: String,
+    pub operation_date: NaiveDate,
     pub price: f32,
     pub after_operation_cash: f32
 }
