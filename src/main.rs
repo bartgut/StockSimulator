@@ -9,6 +9,7 @@ use charming::component::{Axis, Legend, Title};
 use charming::element::{AxisType, ItemStyle, LineStyle};
 use charming::series::Line;
 use chrono::NaiveDate;
+use itertools::Itertools;
 use rayon::prelude::*;
 use serde::Deserialize;
 
@@ -19,6 +20,7 @@ use crate::strategy_simulator::StrategySimulator;
 use crate::strategy_simulator::TradeResult::{Buy, Sell, StopLoss};
 use crate::technical_indicator::keltner_channel::KeltnerChannel;
 use crate::serde_serialization::naive_date_yyyymmdd_format::naive_date_yyyymmdd_format;
+use crate::strategies::rsi_strategy::RsiStrategy;
 
 
 mod strategy_simulator;
@@ -82,6 +84,12 @@ fn process_ticker(file_path: &Path) -> io::Result<f32> {
                                Box::new(PercentageStopLoss::new(0.1)),
                                Box::new(PricePercentageFee::new(0.0035)));
 
+    let mut rsi_strategy =
+        StrategySimulator::new(10000.0f32,
+                               Box::new(RsiStrategy::new(13, 30.0, 70.0)),
+                               Box::new(PercentageStopLoss::new(0.1)),
+                               Box::new(PricePercentageFee::new(0.0035)));
+
     let mut keltner_channel = KeltnerChannel::new(20, 2.0);
 
     let mut ema_line_vec = vec![];
@@ -97,8 +105,9 @@ fn process_ticker(file_path: &Path) -> io::Result<f32> {
         let keltner_channel_result =
             keltner_channel.next(day.close, day.high, day.low, previous_date.clone().map(|u| u.close).unwrap_or(0.0f32));
 
-        let operations_performed = growing_ema_simulator.next(day, &previous_date);
+        //let operations_performed = growing_ema_simulator.next(day, &previous_date);
         //let operations_performed = keltner_channel_simulator.next(day, &previous_date);
+        let operations_performed = rsi_strategy.next(day, &previous_date);
         for operation_performed in operations_performed {
             match operation_performed {
                 Buy(buy_trade) => buy_operation.push(vec![index as f32, buy_trade.price]),
@@ -156,12 +165,24 @@ fn process_directory(dir_path: &Path) -> HashMap<String, f32> {
         .unwrap()
 }
 
+fn bucket_values(values: Vec<f32>, window: f32) -> HashMap<i32, Vec<f32>> {
+    values
+        .into_iter()
+        .into_group_map_by(|&value| ((value/window).floor() as i32) * window as i32)
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
-    let map = process_directory(Path::new("wse"));
+    let map = process_directory(Path::new("newconnect"));
     let mut vec_tuple: Vec<(String, f32)> = map.into_iter().collect();
     vec_tuple.sort_by(|a,b| b.1.partial_cmp(&a.1).unwrap());
-    for (ticker, accumulated_cash) in vec_tuple {
+    for (ticker, accumulated_cash) in vec_tuple.iter() {
         println!("Ticker: {} - {}", ticker, accumulated_cash)
     }
+    let gained_cash = vec_tuple.iter().filter(|&value| value.1 > 10000.0).count();
+    let no_data = vec_tuple.iter().filter(|&value| value.1 == 0.0).count();
+    let lost_cash = vec_tuple.iter().filter(|&value| value.1 < 10000.0 && value.1 != 0.0).count();
+    println!("Cash gained in {} tickers", gained_cash);
+    println!("Cash lost in {} tickers", lost_cash);
+    println!("No buy/sell operation in {} tickers", no_data);
     Ok(())
 }
