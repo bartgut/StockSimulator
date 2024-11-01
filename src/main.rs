@@ -10,10 +10,13 @@ use charming::element::{AxisType, ItemStyle, LineStyle};
 use charming::series::Line;
 use chrono::NaiveDate;
 use itertools::Itertools;
+use crate::utils::vec_to_csv::SaveVecToCsv;
+use rand::prelude::*;
 use rayon::prelude::*;
 use serde::Deserialize;
 
 use crate::broker_fee::PricePercentageFee;
+use crate::results_statistics::monte_carlo::monte_carlo_simulation;
 use crate::stop_loss_strategy::PercentageStopLoss;
 use crate::strategies::growing_ema_investing_strategy::GrowingEmaStrategy;
 use crate::strategy_simulator::StrategySimulator;
@@ -29,6 +32,8 @@ mod broker_fee;
 mod technical_indicator;
 mod strategies;
 mod serde_serialization;
+mod results_statistics;
+mod utils;
 
 #[derive(Debug, serde::Deserialize, Clone)]
 struct StockPriceInfo {
@@ -107,7 +112,7 @@ fn process_ticker(file_path: &Path) -> io::Result<f32> {
 
         //let operations_performed = growing_ema_simulator.next(day, &previous_date);
         //let operations_performed = keltner_channel_simulator.next(day, &previous_date);
-        let operations_performed = rsi_strategy.next(day, &previous_date);
+        let operations_performed = growing_ema_simulator.next(day, &previous_date);
         for operation_performed in operations_performed {
             match operation_performed {
                 Buy(buy_trade) => buy_operation.push(vec![index as f32, buy_trade.price]),
@@ -172,7 +177,7 @@ fn bucket_values(values: Vec<f32>, window: f32) -> HashMap<i32, Vec<f32>> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let map = process_directory(Path::new("newconnect"));
+    let map = process_directory(Path::new("nasdaq"));
     let mut vec_tuple: Vec<(String, f32)> = map.into_iter().collect();
     vec_tuple.sort_by(|a,b| b.1.partial_cmp(&a.1).unwrap());
     for (ticker, accumulated_cash) in vec_tuple.iter() {
@@ -181,8 +186,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let gained_cash = vec_tuple.iter().filter(|&value| value.1 > 10000.0).count();
     let no_data = vec_tuple.iter().filter(|&value| value.1 == 0.0).count();
     let lost_cash = vec_tuple.iter().filter(|&value| value.1 < 10000.0 && value.1 != 0.0).count();
-    println!("Cash gained in {} tickers", gained_cash);
-    println!("Cash lost in {} tickers", lost_cash);
-    println!("No buy/sell operation in {} tickers", no_data);
+    println!("Cash gained in {} test_tickers", gained_cash);
+    println!("Cash lost in {} test_tickers", lost_cash);
+    println!("No buy/sell operation in {} test_tickers", no_data);
+    let ROIs: Vec<f32> = vec_tuple.iter().map(|x| x.1).collect();
+    let monte_carlo_result = monte_carlo_simulation(ROIs, 10000, 2);
+    println!("Monte carlo result: {:?}", monte_carlo_result);
+    monte_carlo_result.save_to_csv("monte_carlo_simulation.csv");
     Ok(())
 }
