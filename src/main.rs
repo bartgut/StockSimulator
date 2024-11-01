@@ -14,6 +14,7 @@ use crate::utils::vec_to_csv::SaveVecToCsv;
 use rand::prelude::*;
 use rayon::prelude::*;
 use serde::Deserialize;
+use crate::brokage::brokage_stocks::get_available_stocks;
 
 use crate::broker_fee::PricePercentageFee;
 use crate::results_statistics::monte_carlo::monte_carlo_simulation;
@@ -34,6 +35,7 @@ mod strategies;
 mod serde_serialization;
 mod results_statistics;
 mod utils;
+mod brokage;
 
 #[derive(Debug, serde::Deserialize, Clone)]
 struct StockPriceInfo {
@@ -148,13 +150,15 @@ fn process_ticker(file_path: &Path) -> io::Result<f32> {
     Ok(cash_after_last_sell)
 }
 
-fn process_directory(dir_path: &Path) -> HashMap<String, f32> {
+fn process_directory(dir_path: &Path, brokage_house: &str) -> HashMap<String, f32> {
     let mut result_map: Arc<Mutex<HashMap<String, f32>>> = Arc::new(Mutex::new(HashMap::new()));
+    let brokage_house_available_stocks = get_available_stocks(brokage_house).unwrap();
 
     let files: Vec<_> = fs::read_dir(dir_path).unwrap()
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
         .filter(|entry| entry.is_file())
+        .filter(|entry| brokage_house_available_stocks.iter().any(|ticker_name| entry.ends_with(format!("{}.txt", ticker_name.to_lowercase()))))
         .collect();
 
     files.par_iter().for_each(|filepath| {
@@ -177,7 +181,7 @@ fn bucket_values(values: Vec<f32>, window: f32) -> HashMap<i32, Vec<f32>> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let map = process_directory(Path::new("nasdaq"));
+    let map = process_directory(Path::new("nasdaq"), "XTB");
     let mut vec_tuple: Vec<(String, f32)> = map.into_iter().collect();
     vec_tuple.sort_by(|a,b| b.1.partial_cmp(&a.1).unwrap());
     for (ticker, accumulated_cash) in vec_tuple.iter() {
@@ -190,8 +194,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Cash lost in {} test_tickers", lost_cash);
     println!("No buy/sell operation in {} test_tickers", no_data);
     let ROIs: Vec<f32> = vec_tuple.iter().map(|x| x.1).collect();
-    let monte_carlo_result = monte_carlo_simulation(ROIs, 10000, 2);
-    println!("Monte carlo result: {:?}", monte_carlo_result);
+    let monte_carlo_result = monte_carlo_simulation(ROIs, 20000, 5);
     monte_carlo_result.save_to_csv("monte_carlo_simulation.csv");
     Ok(())
 }

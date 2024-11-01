@@ -1,5 +1,8 @@
 /target
 /nasdaq
+/test_tickers
 /newconnect
 /wse
 /ticker_images
+/.idea
+/Cargo.lock
