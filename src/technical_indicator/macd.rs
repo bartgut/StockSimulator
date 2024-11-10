@@ -1,22 +1,31 @@
 use crate::technical_indicator::ema::Ema;
 
 pub struct Macd {
-    fast_period_ema: Ema,
     slow_period_ema: Ema,
+    fast_period_ema: Ema,
     signal_period_ema: Ema
 }
 
+#[derive(Clone, Copy)]
 pub struct MACDResult {
     pub macd_line: f32,
     pub signal_line: f32
 }
 
 impl Macd {
-    pub fn new(fast_period: usize, slow_period: usize, signal_period: usize) -> Self {
+    pub fn new(slow_period:usize, fast_period: usize, signal_period: usize) -> Self {
         Self {
-            fast_period_ema: Ema::new(fast_period),
             slow_period_ema: Ema::new(slow_period),
+            fast_period_ema: Ema::new(fast_period),
             signal_period_ema: Ema::new(signal_period)
+        }
+    }
+
+    pub fn default() -> Self {
+        Self {
+            slow_period_ema: Ema::new(26),
+            fast_period_ema: Ema::new(12),
+            signal_period_ema: Ema::new(9)
         }
     }
 

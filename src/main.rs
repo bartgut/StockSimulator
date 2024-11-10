@@ -24,7 +24,10 @@ use crate::strategy_simulator::StrategySimulator;
 use crate::strategy_simulator::TradeResult::{Buy, Sell, StopLoss};
 use crate::technical_indicator::keltner_channel::KeltnerChannel;
 use crate::serde_serialization::naive_date_yyyymmdd_format::naive_date_yyyymmdd_format;
+use crate::strategies::macd_divergence_strategy::MACDDivergenceStrategy;
+use crate::strategies::macd_strategy::MACDStrategy;
 use crate::strategies::rsi_strategy::RsiStrategy;
+use crate::technical_indicator::macd::Macd;
 
 
 mod strategy_simulator;
@@ -97,7 +100,20 @@ fn process_ticker(file_path: &Path) -> io::Result<f32> {
                                Box::new(PercentageStopLoss::new(0.1)),
                                Box::new(PricePercentageFee::new(0.0035)));
 
+    let mut macd_strategy_simulator =
+        StrategySimulator::new(10000.0f32,
+                               Box::new(MACDStrategy::default()),
+                               Box::new(PercentageStopLoss::new(0.1)),
+                               Box::new(PricePercentageFee::new(0.0035)));
+
+    let mut macd_divirgence_simulator =
+        StrategySimulator::new(10000.0f32,
+                               Box::new(MACDDivergenceStrategy::default()),
+                               Box::new(PercentageStopLoss::new(0.1)),
+                               Box::new(PricePercentageFee::new(0.0035)));
+
     let mut keltner_channel = KeltnerChannel::new(20, 2.0);
+    let mut macd = Macd::default();
 
     let mut ema_line_vec = vec![];
     let mut lower_band_vec = vec![];
@@ -111,10 +127,14 @@ fn process_ticker(file_path: &Path) -> io::Result<f32> {
     for (index, day) in stock_data.iter().enumerate() {
         let keltner_channel_result =
             keltner_channel.next(day.close, day.high, day.low, previous_date.clone().map(|u| u.close).unwrap_or(0.0f32));
+        let macd_result =
+            macd.next(day.close);
 
+        //let operations_performed = macd_divirgence_simulator.next(day, &previous_date);
+        //let operations_performed = macd_strategy_simulator.next(day, &previous_date);
         //let operations_performed = growing_ema_simulator.next(day, &previous_date);
-        //let operations_performed = keltner_channel_simulator.next(day, &previous_date);
-        let operations_performed = growing_ema_simulator.next(day, &previous_date);
+        let operations_performed = keltner_channel_simulator.next(day, &previous_date);
+        //let operations_performed = growing_ema_simulator.next(day, &previous_date);
         for operation_performed in operations_performed {
             match operation_performed {
                 Buy(buy_trade) => buy_operation.push(vec![index as f32, buy_trade.price]),
@@ -125,6 +145,10 @@ fn process_ticker(file_path: &Path) -> io::Result<f32> {
                 StopLoss(stop_loss_trade) => stop_loss_operation.push(vec![index as f32, stop_loss_trade.price])
             }
         }
+
+        //ema_line_vec.push(macd_result.macd_line);
+        //upper_band_vec.push(macd_result.signal_line);
+        //lower_band_vec.push(macd_result.signal_line);
 
         ema_line_vec.push(keltner_channel_result.ema);
         upper_band_vec.push(keltner_channel_result.upper_band);
@@ -190,9 +214,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let gained_cash = vec_tuple.iter().filter(|&value| value.1 > 10000.0).count();
     let no_data = vec_tuple.iter().filter(|&value| value.1 == 0.0).count();
     let lost_cash = vec_tuple.iter().filter(|&value| value.1 < 10000.0 && value.1 != 0.0).count();
-    println!("Cash gained in {} test_tickers", gained_cash);
-    println!("Cash lost in {} test_tickers", lost_cash);
-    println!("No buy/sell operation in {} test_tickers", no_data);
+    println!("Cash gained in {} tickers", gained_cash);
+    println!("Cash lost in {} tickers", lost_cash);
+    println!("No buy/sell operation in {} tickers", no_data);
     let ROIs: Vec<f32> = vec_tuple.iter().map(|x| x.1).collect();
     let monte_carlo_result = monte_carlo_simulation(ROIs, 20000, 5);
     monte_carlo_result.save_to_csv("monte_carlo_simulation.csv");
