@@ -16,6 +16,7 @@ pub struct StrategySimulator<T> {
     stop_loss: Box<dyn StopLossTrigger>,
     broker_fee: Box<dyn BrokerFee>,
     cash: f32,
+    start_date: NaiveDate,
     last_buy_price: f32,
     current_position: usize,
 }
@@ -33,12 +34,17 @@ pub enum TradeResult {
 }
 
 impl<T> StrategySimulator<T>  {
-    pub fn new(invested_cash: f32, strategy: Box<dyn InvestingStrategy<T>>, stop_loss: Box<dyn StopLossTrigger>, broker_fee: Box<dyn BrokerFee>) -> Self<> {
+    pub fn new(invested_cash: f32,
+               start_date: NaiveDate,
+               strategy: Box<dyn InvestingStrategy<T>>,
+               stop_loss: Box<dyn StopLossTrigger>,
+               broker_fee: Box<dyn BrokerFee>) -> Self<> {
         Self {
             strategy,
             stop_loss,
             broker_fee,
             cash: invested_cash,
+            start_date: start_date,
             last_buy_price: 0.0f32,
             current_position: 0,
         }
@@ -47,35 +53,37 @@ impl<T> StrategySimulator<T>  {
     pub fn next(&mut self, today: &StockPriceInfo, yesterday: &Option<StockPriceInfo>) -> Vec<TradeResult> {
         let metric_result = self.strategy.calculation(&today, yesterday);
         let mut operations_performed = vec![];
-        if self.current_position > 0 {
-            if let Some(sell_price) = self.strategy.sell_signal(&today, &metric_result) {
-                self.sell_operation(sell_price);
-                println!("{}: Selling at {}, cash: {}", today.date, sell_price, self.cash);
-                operations_performed.push(Sell(Trade {
-                    operation_date: today.date.clone(),
-                    price: sell_price,
-                    after_operation_cash: self.cash
-                }));
+        if today.date >= self.start_date {
+            if self.current_position > 0 {
+                if let Some(sell_price) = self.strategy.sell_signal(&today, &metric_result) {
+                    self.sell_operation(sell_price);
+                    println!("{}: Selling at {}, cash: {}", today.date, sell_price, self.cash);
+                    operations_performed.push(Sell(Trade {
+                        operation_date: today.date.clone(),
+                        price: sell_price,
+                        after_operation_cash: self.cash
+                    }));
+                }
+                if let Some(stop_loss_price) = self.stop_loss.should_trigger_stop_loss(today, self.last_buy_price) {
+                    self.sell_operation(stop_loss_price);
+                    println!("{}: Stop loss triggered at {}, cash: {}", today.date, stop_loss_price, self.cash);
+                    operations_performed.push(StopLoss(Trade {
+                        operation_date: today.date.clone(),
+                        price: stop_loss_price,
+                        after_operation_cash: self.cash,
+                    }))
+                }
             }
-            if let Some(stop_loss_price) = self.stop_loss.should_trigger_stop_loss(today, self.last_buy_price) {
-                self.sell_operation(stop_loss_price);
-                println!("{}: Stop loss triggered at {}, cash: {}", today.date, stop_loss_price, self.cash);
-                operations_performed.push(StopLoss(Trade {
-                    operation_date: today.date.clone(),
-                    price: stop_loss_price,
-                    after_operation_cash: self.cash,
-                }))
-            }
-        }
-        if self.current_position == 0 {
-            if let Some(buy_price) = self.strategy.buy_signal(&today, &metric_result) {
-                self.buy_operation(buy_price);
-                println!("{}: Buying at {} number of shares: {}, cash left: {}", today.date, buy_price, self.current_position, self.cash);
-                operations_performed.push(Buy(Trade {
-                    operation_date: today.date.clone(),
-                    price: buy_price,
-                    after_operation_cash: self.cash,
-                }))
+            if self.current_position == 0 {
+                if let Some(buy_price) = self.strategy.buy_signal(&today, &metric_result) {
+                    self.buy_operation(buy_price);
+                    println!("{}: Buying at {} number of shares: {}, cash left: {}", today.date, buy_price, self.current_position, self.cash);
+                    operations_performed.push(Buy(Trade {
+                        operation_date: today.date.clone(),
+                        price: buy_price,
+                        after_operation_cash: self.cash,
+                    }))
+                }
             }
         }
         operations_performed

@@ -27,6 +27,7 @@ use crate::serde_serialization::naive_date_yyyymmdd_format::naive_date_yyyymmdd_
 use crate::strategies::macd_divergence_strategy::MACDDivergenceStrategy;
 use crate::strategies::macd_strategy::MACDStrategy;
 use crate::strategies::rsi_strategy::RsiStrategy;
+use crate::technical_indicator::ema::Ema;
 use crate::technical_indicator::macd::Macd;
 
 
@@ -65,7 +66,7 @@ struct StockPriceInfo {
 }
 
 
-fn process_ticker(file_path: &Path) -> io::Result<f32> {
+fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
     let mut cash_after_last_sell: f32 = 0.0;
     let file_name_str = file_path.file_name().unwrap().to_str().unwrap();
     println!("Simulating strategy for {}", file_name_str);
@@ -83,6 +84,7 @@ fn process_ticker(file_path: &Path) -> io::Result<f32> {
 
     let mut keltner_channel_simulator =
         StrategySimulator::new(10000.0f32,
+                               start_date,
                                Box::new(KeltnerChannel::new(20, 2.0)),
                                Box::new(PercentageStopLoss::new(0.1)),
                                Box::new(PricePercentageFee::new(0.0035)));
@@ -90,34 +92,39 @@ fn process_ticker(file_path: &Path) -> io::Result<f32> {
 
     let mut growing_ema_simulator =
         StrategySimulator::new(10000.0f32,
-                               Box::new(GrowingEmaStrategy::new(20, 20.0, -10.0)),
+                               start_date,
+                               Box::new(GrowingEmaStrategy::new(45, 0.0, -10.0)), // 20.0, -10.0
                                Box::new(PercentageStopLoss::new(0.1)),
                                Box::new(PricePercentageFee::new(0.0035)));
 
     let mut rsi_strategy =
         StrategySimulator::new(10000.0f32,
+                               start_date,
                                Box::new(RsiStrategy::new(13, 30.0, 70.0)),
                                Box::new(PercentageStopLoss::new(0.1)),
                                Box::new(PricePercentageFee::new(0.0035)));
 
     let mut macd_strategy_simulator =
         StrategySimulator::new(10000.0f32,
+                               start_date,
                                Box::new(MACDStrategy::default()),
                                Box::new(PercentageStopLoss::new(0.1)),
                                Box::new(PricePercentageFee::new(0.0035)));
 
     let mut macd_divirgence_simulator =
         StrategySimulator::new(10000.0f32,
+                               start_date,
                                Box::new(MACDDivergenceStrategy::default()),
                                Box::new(PercentageStopLoss::new(0.1)),
                                Box::new(PricePercentageFee::new(0.0035)));
 
     let mut keltner_channel = KeltnerChannel::new(20, 2.0);
     let mut macd = Macd::default();
+    let mut ema = Ema::new(45);
 
     let mut ema_line_vec = vec![];
-    let mut lower_band_vec = vec![];
-    let mut upper_band_vec = vec![];
+    //let mut lower_band_vec = vec![];
+    //let mut upper_band_vec = vec![];
     let mut buy_operation = vec![];
     let mut sell_operation = vec![];
     let mut stop_loss_operation = vec![];
@@ -129,12 +136,13 @@ fn process_ticker(file_path: &Path) -> io::Result<f32> {
             keltner_channel.next(day.close, day.high, day.low, previous_date.clone().map(|u| u.close).unwrap_or(0.0f32));
         let macd_result =
             macd.next(day.close);
+        let ema_result = ema.next(day.close);
 
         //let operations_performed = macd_divirgence_simulator.next(day, &previous_date);
         //let operations_performed = macd_strategy_simulator.next(day, &previous_date);
         //let operations_performed = growing_ema_simulator.next(day, &previous_date);
-        let operations_performed = keltner_channel_simulator.next(day, &previous_date);
-        //let operations_performed = growing_ema_simulator.next(day, &previous_date);
+        //let operations_performed = keltner_channel_simulator.next(day, &previous_date);
+        let operations_performed = growing_ema_simulator.next(day, &previous_date);
         for operation_performed in operations_performed {
             match operation_performed {
                 Buy(buy_trade) => buy_operation.push(vec![index as f32, buy_trade.price]),
@@ -150,9 +158,11 @@ fn process_ticker(file_path: &Path) -> io::Result<f32> {
         //upper_band_vec.push(macd_result.signal_line);
         //lower_band_vec.push(macd_result.signal_line);
 
-        ema_line_vec.push(keltner_channel_result.ema);
-        upper_band_vec.push(keltner_channel_result.upper_band);
-        lower_band_vec.push(keltner_channel_result.lower_band);
+        //ema_line_vec.push(keltner_channel_result.ema);
+        //upper_band_vec.push(keltner_channel_result.upper_band);
+        //lower_band_vec.push(keltner_channel_result.lower_band);
+
+        ema_line_vec.push(ema_result);
         previous_date = Some(day.clone())
     }
     let chart = Chart::new()
@@ -162,8 +172,8 @@ fn process_ticker(file_path: &Path) -> io::Result<f32> {
         .y_axis(Axis::new().type_(AxisType::Value))
         .series(Line::new().data(stock_data.iter().map(|x| x.close).collect()))
         .series(Line::new().data(ema_line_vec))
-        .series(Line::new().line_style(LineStyle::new().color("blue")).data(upper_band_vec))
-        .series(Line::new().line_style(LineStyle::new().color("blue")).data(lower_band_vec))
+        //.series(Line::new().line_style(LineStyle::new().color("blue")).data(upper_band_vec))
+        //.series(Line::new().line_style(LineStyle::new().color("blue")).data(lower_band_vec))
         .series(series::Scatter::new().item_style(ItemStyle::new().color("green")).symbol_size(20).data(buy_operation))
         .series(series::Scatter::new().item_style(ItemStyle::new().color("red")).symbol_size(20).data(sell_operation))
         .series(series::Scatter::new().item_style(ItemStyle::new().color("yellow")).symbol_size(20).data(stop_loss_operation));
@@ -174,7 +184,7 @@ fn process_ticker(file_path: &Path) -> io::Result<f32> {
     Ok(cash_after_last_sell)
 }
 
-fn process_directory(dir_path: &Path, brokage_house: &str) -> HashMap<String, f32> {
+fn process_directory(dir_path: &Path, brokage_house: &str, start_date: NaiveDate) -> HashMap<String, f32> {
     let mut result_map: Arc<Mutex<HashMap<String, f32>>> = Arc::new(Mutex::new(HashMap::new()));
     let brokage_house_available_stocks = get_available_stocks(brokage_house).unwrap();
 
@@ -186,7 +196,7 @@ fn process_directory(dir_path: &Path, brokage_house: &str) -> HashMap<String, f3
         .collect();
 
     files.par_iter().for_each(|filepath| {
-        let result = process_ticker(filepath);
+        let result = process_ticker(filepath, start_date);
         let mut map_unlocked = result_map.lock().unwrap();
         let file_name = filepath.file_name().unwrap().to_str().unwrap();
         map_unlocked.insert(file_name.to_ascii_lowercase(), result.unwrap());
@@ -205,7 +215,7 @@ fn bucket_values(values: Vec<f32>, window: f32) -> HashMap<i32, Vec<f32>> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let map = process_directory(Path::new("nasdaq"), "XTB");
+    let map = process_directory(Path::new("nasdaq"), "XTB", NaiveDate::from_ymd(2019, 11, 1));
     let mut vec_tuple: Vec<(String, f32)> = map.into_iter().collect();
     vec_tuple.sort_by(|a,b| b.1.partial_cmp(&a.1).unwrap());
     for (ticker, accumulated_cash) in vec_tuple.iter() {
