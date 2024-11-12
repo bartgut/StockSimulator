@@ -50,6 +50,10 @@ impl<T> StrategySimulator<T>  {
         }
     }
 
+    pub fn next_today(&mut self, today: &StockPriceInfo) -> Vec<TradeResult> {
+        self.next(today, &None)
+    }
+
     pub fn next(&mut self, today: &StockPriceInfo, yesterday: &Option<StockPriceInfo>) -> Vec<TradeResult> {
         let metric_result = self.strategy.calculation(&today, yesterday);
         let mut operations_performed = vec![];

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use charming::{Chart, ImageRenderer, series};
 use charming::component::{Axis, Legend, Title};
@@ -17,13 +18,15 @@ use serde::Deserialize;
 use crate::brokage::brokage_stocks::get_available_stocks;
 
 use crate::broker_fee::PricePercentageFee;
+use crate::grid_search::grid_search::GridSearch;
+use crate::grid_search::parameter::Parameter;
 use crate::results_statistics::monte_carlo::monte_carlo_simulation;
+use crate::stock_data_reader::stock_data_reader::{get_ticker_files, read_from_file, StockPriceInfo};
 use crate::stop_loss_strategy::PercentageStopLoss;
 use crate::strategies::growing_ema_investing_strategy::GrowingEmaStrategy;
 use crate::strategy_simulator::StrategySimulator;
 use crate::strategy_simulator::TradeResult::{Buy, Sell, StopLoss};
 use crate::technical_indicator::keltner_channel::KeltnerChannel;
-use crate::serde_serialization::naive_date_yyyymmdd_format::naive_date_yyyymmdd_format;
 use crate::strategies::macd_divergence_strategy::MACDDivergenceStrategy;
 use crate::strategies::macd_strategy::MACDStrategy;
 use crate::strategies::rsi_strategy::RsiStrategy;
@@ -40,46 +43,39 @@ mod serde_serialization;
 mod results_statistics;
 mod utils;
 mod brokage;
+mod grid_search;
+mod stock_data_reader;
 
-#[derive(Debug, serde::Deserialize, Clone)]
-struct StockPriceInfo {
-    #[serde(rename = "<TICKER>")]
-    ticker: String,
-    #[serde(rename = "<PER>")]
-    per: String,
-    #[serde(rename = "<DATE>", with = "naive_date_yyyymmdd_format")]
-    date: NaiveDate,
-    #[serde(rename = "<TIME>")]
-    time: String,
-    #[serde(rename = "<OPEN>")]
-    open: f32,
-    #[serde(rename = "<HIGH>")]
-    high: f32,
-    #[serde(rename = "<LOW>")]
-    low: f32,
-    #[serde(rename = "<CLOSE>")]
-    close: f32,
-    #[serde(rename = "<VOL>")]
-    vol: f32,
-    #[serde(rename = "<OPENINT>")]
-    openint: u32
-}
+ fn simulate_ticker(file_path: &Path, buy_ema_length: usize, sell_ema_length: usize) -> f32 {
+     let mut cash_after_last_sell: f32 = 0.0;
+     let mut stock_data = read_from_file(file_path);
+     let mut strategy =
+         StrategySimulator::new(10000.0f32,
+                                 NaiveDate::from_ymd(2019, 11, 1),
+                                 Box::new(GrowingEmaStrategy::with_separate_buy_sell_ema(buy_ema_length, sell_ema_length, 0.0, -10.0)), // 20.0, -10.0
+                                 Box::new(PercentageStopLoss::new(0.1)),
+                                 Box::new(PricePercentageFee::new(0.0035)));
+
+     for data in stock_data.iter() {
+         let operations_performed = strategy.next_today(data);
+         for operation_performed in operations_performed {
+             match operation_performed {
+                 Sell(sell_trade) => {
+                     cash_after_last_sell = sell_trade.after_operation_cash
+                 }
+                 _ => ()
+             }
+         }
+     }
+     cash_after_last_sell
+ }
 
 
 fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
     let mut cash_after_last_sell: f32 = 0.0;
     let file_name_str = file_path.file_name().unwrap().to_str().unwrap();
     println!("Simulating strategy for {}", file_name_str);
-    let mut stock_data = vec![];
-    let mut reader = csv::ReaderBuilder::new()
-        .delimiter(b',')
-        .has_headers(true)
-        .from_path(file_path)?;
-
-    for record in reader.deserialize() {
-        let stock_price_info: StockPriceInfo = record?;
-        stock_data.push(stock_price_info)
-    }
+    let mut stock_data = read_from_file(file_path);
 
 
     let mut keltner_channel_simulator =
@@ -93,7 +89,7 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
     let mut growing_ema_simulator =
         StrategySimulator::new(10000.0f32,
                                start_date,
-                               Box::new(GrowingEmaStrategy::new(45, 0.0, -10.0)), // 20.0, -10.0
+                               Box::new(GrowingEmaStrategy::with_separate_buy_sell_ema(45, 45, 0.0, -10.0)), // 20.0, -10.0
                                Box::new(PercentageStopLoss::new(0.1)),
                                Box::new(PricePercentageFee::new(0.0035)));
 
@@ -186,20 +182,33 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
 
 fn process_directory(dir_path: &Path, brokage_house: &str, start_date: NaiveDate) -> HashMap<String, f32> {
     let mut result_map: Arc<Mutex<HashMap<String, f32>>> = Arc::new(Mutex::new(HashMap::new()));
-    let brokage_house_available_stocks = get_available_stocks(brokage_house).unwrap();
-
-    let files: Vec<_> = fs::read_dir(dir_path).unwrap()
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|entry| entry.is_file())
-        .filter(|entry| brokage_house_available_stocks.iter().any(|ticker_name| entry.ends_with(format!("{}.txt", ticker_name.to_lowercase()))))
-        .collect();
+    let files = get_ticker_files(dir_path, brokage_house);
 
     files.par_iter().for_each(|filepath| {
         let result = process_ticker(filepath, start_date);
         let mut map_unlocked = result_map.lock().unwrap();
         let file_name = filepath.file_name().unwrap().to_str().unwrap();
         map_unlocked.insert(file_name.to_ascii_lowercase(), result.unwrap());
+    });
+
+    Arc::try_unwrap(result_map)
+        .expect("sth went wrong")
+        .into_inner()
+        .unwrap()
+}
+
+fn process_directory_v2(dir_path: &Path,
+                           brokage_house: &str,
+                           buy_ema_length: usize,
+                           sell_ema_length: usize) -> HashMap<String, f32> {
+    let mut result_map: Arc<Mutex<HashMap<String, f32>>> = Arc::new(Mutex::new(HashMap::new()));
+    let files = get_ticker_files(dir_path, brokage_house);
+
+    files.par_iter().for_each(|filepath| {
+        let result = simulate_ticker(filepath, buy_ema_length, sell_ema_length);
+        let mut map_unlocked = result_map.lock().unwrap();
+        let file_name = filepath.file_name().unwrap().to_str().unwrap();
+        map_unlocked.insert(file_name.to_ascii_lowercase(), result);
     });
 
     Arc::try_unwrap(result_map)
@@ -215,7 +224,12 @@ fn bucket_values(values: Vec<f32>, window: f32) -> HashMap<i32, Vec<f32>> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let map = process_directory(Path::new("nasdaq"), "XTB", NaiveDate::from_ymd(2019, 11, 1));
+    let start = Instant::now();
+    grid_search_growing_ema();
+    let duration = start.elapsed();
+    println!("Time elapsed: {:?}", duration);
+
+    /*let map = process_directory(Path::new("nasdaq"), "XTB", NaiveDate::from_ymd(2019, 11, 1));
     let mut vec_tuple: Vec<(String, f32)> = map.into_iter().collect();
     vec_tuple.sort_by(|a,b| b.1.partial_cmp(&a.1).unwrap());
     for (ticker, accumulated_cash) in vec_tuple.iter() {
@@ -229,6 +243,28 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("No buy/sell operation in {} tickers", no_data);
     let ROIs: Vec<f32> = vec_tuple.iter().map(|x| x.1).collect();
     let monte_carlo_result = monte_carlo_simulation(ROIs, 20000, 5);
-    monte_carlo_result.save_to_csv("monte_carlo_simulation.csv");
+    monte_carlo_result.save_to_csv("monte_carlo_simulation.csv"); */
     Ok(())
+}
+
+fn grid_search_growing_ema() -> f32 {
+    let buy_ema_length_param = Parameter::new(1.0, 24.0, 1.0);
+    let sell_ema_length_param = Parameter::new(1.0, 24.0, 1.0);
+
+    let search = GridSearch::new(vec![buy_ema_length_param, sell_ema_length_param]);
+
+    let strategy = |params: &[f32]| -> f32 {
+        let buy_ema_length: usize= params[0] as usize;
+        let sell_ema_length: usize = params[1] as usize;
+
+        let res = process_directory_v2(Path::new("nasdaq"), "XTB", buy_ema_length, sell_ema_length);
+        let sum: f32 = res.values().sum();
+        let count = res.len() as f32;
+        sum / count
+    };
+
+    let results = search.search(strategy);
+    results.save_to_csv("growing_ema_grid_search.csv");
+    0.0
+
 }
