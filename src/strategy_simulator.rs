@@ -61,7 +61,7 @@ impl<T> StrategySimulator<T>  {
             if self.current_position > 0 {
                 if let Some(sell_price) = self.strategy.sell_signal(&today, &metric_result) {
                     self.sell_operation(sell_price);
-                    println!("{}: Selling at {}, cash: {}", today.date, sell_price, self.cash);
+                    //println!("{}: Selling at {}, cash: {}", today.date, sell_price, self.cash);
                     operations_performed.push(Sell(Trade {
                         operation_date: today.date.clone(),
                         price: sell_price,
@@ -70,7 +70,7 @@ impl<T> StrategySimulator<T>  {
                 }
                 if let Some(stop_loss_price) = self.stop_loss.should_trigger_stop_loss(today, self.last_buy_price) {
                     self.sell_operation(stop_loss_price);
-                    println!("{}: Stop loss triggered at {}, cash: {}", today.date, stop_loss_price, self.cash);
+                    //println!("{}: Stop loss triggered at {}, cash: {}", today.date, stop_loss_price, self.cash);
                     operations_performed.push(StopLoss(Trade {
                         operation_date: today.date.clone(),
                         price: stop_loss_price,
@@ -81,7 +81,7 @@ impl<T> StrategySimulator<T>  {
             if self.current_position == 0 {
                 if let Some(buy_price) = self.strategy.buy_signal(&today, &metric_result) {
                     self.buy_operation(buy_price);
-                    println!("{}: Buying at {} number of shares: {}, cash left: {}", today.date, buy_price, self.current_position, self.cash);
+                    //println!("{}: Buying at {} number of shares: {}, cash left: {}", today.date, buy_price, self.current_position, self.cash);
                     operations_performed.push(Buy(Trade {
                         operation_date: today.date.clone(),
                         price: buy_price,

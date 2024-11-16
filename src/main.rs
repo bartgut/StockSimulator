@@ -46,13 +46,16 @@ mod brokage;
 mod grid_search;
 mod stock_data_reader;
 
- fn simulate_ticker(file_path: &Path, buy_ema_length: usize, sell_ema_length: usize) -> f32 {
+ fn simulate_ticker(stock_data: &Vec<StockPriceInfo>,
+                    buy_ema_length: usize,
+                    sell_ema_length: usize,
+                    buy_inclination: f32,
+                    sell_inclination: f32) -> f32 {
      let mut cash_after_last_sell: f32 = 0.0;
-     let mut stock_data = read_from_file(file_path);
      let mut strategy =
          StrategySimulator::new(10000.0f32,
                                  NaiveDate::from_ymd(2019, 11, 1),
-                                 Box::new(GrowingEmaStrategy::with_separate_buy_sell_ema(buy_ema_length, sell_ema_length, 0.0, -10.0)), // 20.0, -10.0
+                                 Box::new(GrowingEmaStrategy::with_separate_buy_sell_ema(buy_ema_length, sell_ema_length, buy_inclination, sell_inclination)), // 20.0, -10.0
                                  Box::new(PercentageStopLoss::new(0.1)),
                                  Box::new(PricePercentageFee::new(0.0035)));
 
@@ -197,18 +200,18 @@ fn process_directory(dir_path: &Path, brokage_house: &str, start_date: NaiveDate
         .unwrap()
 }
 
-fn process_directory_v2(dir_path: &Path,
-                           brokage_house: &str,
+fn process_directory_v2(data: &HashMap<String, Vec<StockPriceInfo>>,
                            buy_ema_length: usize,
-                           sell_ema_length: usize) -> HashMap<String, f32> {
+                           sell_ema_length: usize,
+                           buy_inclination: f32,
+                           sell_inclination: f32) -> HashMap<String, f32> {
     let mut result_map: Arc<Mutex<HashMap<String, f32>>> = Arc::new(Mutex::new(HashMap::new()));
-    let files = get_ticker_files(dir_path, brokage_house);
 
-    files.par_iter().for_each(|filepath| {
-        let result = simulate_ticker(filepath, buy_ema_length, sell_ema_length);
+    data.par_iter().for_each(|(file_name, stock_data)| {
+        let result = simulate_ticker(
+            stock_data, buy_ema_length, sell_ema_length, buy_inclination, sell_inclination);
         let mut map_unlocked = result_map.lock().unwrap();
-        let file_name = filepath.file_name().unwrap().to_str().unwrap();
-        map_unlocked.insert(file_name.to_ascii_lowercase(), result);
+        map_unlocked.insert(file_name.clone(), result);
     });
 
     Arc::try_unwrap(result_map)
@@ -248,16 +251,31 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn grid_search_growing_ema() -> f32 {
-    let buy_ema_length_param = Parameter::new(1.0, 24.0, 1.0);
-    let sell_ema_length_param = Parameter::new(1.0, 24.0, 1.0);
+    let buy_ema_length_param = Parameter::new(1.0, 75.0, 1.0);
+    let sell_ema_length_param = Parameter::new(1.0, 75.0, 1.0);
+    let buy_inclination_param = Parameter::new(0.0, 20.0, 1.0);
+    let sell_inclination_param = Parameter::new(-20.0, 0.0, 1.0);
 
-    let search = GridSearch::new(vec![buy_ema_length_param, sell_ema_length_param]);
+    let search = GridSearch::new(
+        vec![buy_ema_length_param, sell_ema_length_param, buy_inclination_param, sell_inclination_param]);
+
+    let files = get_ticker_files(Path::new("nasdaq"), "XTB");
+    let loaded_files: HashMap<String, Vec<StockPriceInfo>> =
+        files.par_iter()
+            .map(|file_path| (file_path.file_name().unwrap().to_str().unwrap().to_ascii_lowercase(), read_from_file(file_path)))
+            .collect();
 
     let strategy = |params: &[f32]| -> f32 {
         let buy_ema_length: usize= params[0] as usize;
         let sell_ema_length: usize = params[1] as usize;
+        let buy_inclination: f32 = params[2];
+        let sell_inclination: f32 = params[3];
 
-        let res = process_directory_v2(Path::new("nasdaq"), "XTB", buy_ema_length, sell_ema_length);
+        let res = process_directory_v2(&loaded_files,
+                                       buy_ema_length,
+                                       sell_ema_length,
+                                       buy_inclination,
+                                       sell_inclination);
         let sum: f32 = res.values().sum();
         let count = res.len() as f32;
         sum / count
