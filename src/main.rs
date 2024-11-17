@@ -13,6 +13,7 @@ use chrono::NaiveDate;
 use itertools::Itertools;
 use crate::utils::vec_to_csv::SaveVecToCsv;
 use rand::prelude::*;
+use rayon::current_num_threads;
 use rayon::prelude::*;
 use serde::Deserialize;
 use crate::brokage::brokage_stocks::get_available_stocks;
@@ -66,6 +67,9 @@ mod stock_data_reader;
                  Sell(sell_trade) => {
                      cash_after_last_sell = sell_trade.after_operation_cash
                  }
+                 StopLoss(stop_loss_trade) => {
+                     cash_after_last_sell = stop_loss_trade.after_operation_cash
+                 }
                  _ => ()
              }
          }
@@ -92,7 +96,7 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
     let mut growing_ema_simulator =
         StrategySimulator::new(10000.0f32,
                                start_date,
-                               Box::new(GrowingEmaStrategy::with_separate_buy_sell_ema(45, 45, 0.0, -10.0)), // 20.0, -10.0
+                               Box::new(GrowingEmaStrategy::with_separate_buy_sell_ema(44, 26, 0.0, -19.0)), // 20.0, -10.0
                                Box::new(PercentageStopLoss::new(0.1)),
                                Box::new(PricePercentageFee::new(0.0035)));
 
@@ -119,7 +123,7 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
 
     let mut keltner_channel = KeltnerChannel::new(20, 2.0);
     let mut macd = Macd::default();
-    let mut ema = Ema::new(45);
+    let mut ema = Ema::new(26);
 
     let mut ema_line_vec = vec![];
     //let mut lower_band_vec = vec![];
@@ -149,7 +153,10 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
                     sell_operation.push(vec![index as f32, sell_trade.price]);
                     cash_after_last_sell = sell_trade.after_operation_cash
                 }
-                StopLoss(stop_loss_trade) => stop_loss_operation.push(vec![index as f32, stop_loss_trade.price])
+                StopLoss(stop_loss_trade) => {
+                    stop_loss_operation.push(vec![index as f32, stop_loss_trade.price]);
+                    cash_after_last_sell = stop_loss_trade.after_operation_cash
+                }
             }
         }
 
@@ -227,6 +234,7 @@ fn bucket_values(values: Vec<f32>, window: f32) -> HashMap<i32, Vec<f32>> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    println!("Number of threads {:?}", current_num_threads());
     let start = Instant::now();
     grid_search_growing_ema();
     let duration = start.elapsed();
@@ -253,7 +261,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn grid_search_growing_ema() -> f32 {
     let buy_ema_length_param = Parameter::new(1.0, 75.0, 1.0);
     let sell_ema_length_param = Parameter::new(1.0, 75.0, 1.0);
-    let buy_inclination_param = Parameter::new(0.0, 20.0, 1.0);
+    let buy_inclination_param = Parameter::new(0.0, 1.0, 1.0);
     let sell_inclination_param = Parameter::new(-20.0, 0.0, 1.0);
 
     let search = GridSearch::new(
