@@ -3,7 +3,8 @@ use chrono::NaiveDate;
 use crate::broker_fee::BrokerFee;
 use crate::StockPriceInfo;
 use crate::stop_loss_strategy::StopLossTrigger;
-use crate::strategy_simulator::TradeResult::{Buy, Sell, StopLoss};
+use crate::strategy_simulator::TradeResult::{Buy, Sell, StopLoss, TakeProfit};
+use crate::take_profit_strategy::TakeProfitTrigger;
 
 pub trait InvestingStrategy<T> {
     fn calculation(&mut self, stock_price_info: &StockPriceInfo, yesterday: &Option<StockPriceInfo>) -> T;
@@ -13,6 +14,7 @@ pub trait InvestingStrategy<T> {
 
 pub struct StrategySimulator<T> {
     strategy: Box<dyn InvestingStrategy<T>>,
+    take_profit: Box<dyn TakeProfitTrigger>,
     stop_loss: Box<dyn StopLossTrigger>,
     broker_fee: Box<dyn BrokerFee>,
     cash: f32,
@@ -30,17 +32,20 @@ pub struct Trade {
 pub enum TradeResult {
     Buy(Trade),
     Sell(Trade),
-    StopLoss(Trade)
+    StopLoss(Trade),
+    TakeProfit(Trade)
 }
 
 impl<T> StrategySimulator<T>  {
     pub fn new(invested_cash: f32,
                start_date: NaiveDate,
                strategy: Box<dyn InvestingStrategy<T>>,
+               take_profit: Box<dyn TakeProfitTrigger>,
                stop_loss: Box<dyn StopLossTrigger>,
                broker_fee: Box<dyn BrokerFee>) -> Self<> {
         Self {
             strategy,
+            take_profit,
             stop_loss,
             broker_fee,
             cash: invested_cash,
@@ -67,6 +72,14 @@ impl<T> StrategySimulator<T>  {
                         price: sell_price,
                         after_operation_cash: self.cash
                     }));
+                }
+                if let Some(take_profit_price) = self.take_profit.should_trigger_take_profit(today, self.last_buy_price) {
+                    self.sell_operation(take_profit_price);
+                    operations_performed.push(TakeProfit(Trade {
+                        operation_date: today.date.clone(),
+                        price: take_profit_price,
+                        after_operation_cash: self.cash
+                    }))
                 }
                 if let Some(stop_loss_price) = self.stop_loss.should_trigger_stop_loss(today, self.last_buy_price) {
                     self.sell_operation(stop_loss_price);

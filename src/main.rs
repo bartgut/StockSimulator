@@ -26,11 +26,12 @@ use crate::stock_data_reader::stock_data_reader::{get_ticker_files, read_from_fi
 use crate::stop_loss_strategy::PercentageStopLoss;
 use crate::strategies::growing_ema_investing_strategy::GrowingEmaStrategy;
 use crate::strategy_simulator::StrategySimulator;
-use crate::strategy_simulator::TradeResult::{Buy, Sell, StopLoss};
+use crate::strategy_simulator::TradeResult::{Buy, Sell, StopLoss, TakeProfit};
 use crate::technical_indicator::keltner_channel::KeltnerChannel;
 use crate::strategies::macd_divergence_strategy::MACDDivergenceStrategy;
 use crate::strategies::macd_strategy::MACDStrategy;
 use crate::strategies::rsi_strategy::RsiStrategy;
+use crate::take_profit_strategy::{NoTakeProfit, PercentageTakeProfit};
 use crate::technical_indicator::ema::Ema;
 use crate::technical_indicator::macd::Macd;
 
@@ -46,8 +47,9 @@ mod utils;
 mod brokage;
 mod grid_search;
 mod stock_data_reader;
+mod take_profit_strategy;
 
- fn simulate_ticker(stock_data: &Vec<StockPriceInfo>,
+fn simulate_ticker(stock_data: &Vec<StockPriceInfo>,
                     buy_ema_length: usize,
                     sell_ema_length: usize,
                     buy_inclination: f32,
@@ -55,10 +57,11 @@ mod stock_data_reader;
      let mut cash_after_last_sell: f32 = 0.0;
      let mut strategy =
          StrategySimulator::new(10000.0f32,
-                                 NaiveDate::from_ymd(2019, 11, 1),
-                                 Box::new(GrowingEmaStrategy::with_separate_buy_sell_ema(buy_ema_length, sell_ema_length, buy_inclination, sell_inclination)), // 20.0, -10.0
-                                 Box::new(PercentageStopLoss::new(0.1)),
-                                 Box::new(PricePercentageFee::new(0.0035)));
+                                NaiveDate::from_ymd(2019, 11, 1),
+                                Box::new(GrowingEmaStrategy::with_separate_buy_sell_ema(buy_ema_length, sell_ema_length, buy_inclination, sell_inclination)), // 20.0, -10.0
+                                Box::new(NoTakeProfit),
+                                Box::new(PercentageStopLoss::new(0.1)),
+                                Box::new(PricePercentageFee::new(0.0035)));
 
      for data in stock_data.iter() {
          let operations_performed = strategy.next_today(data);
@@ -69,6 +72,9 @@ mod stock_data_reader;
                  }
                  StopLoss(stop_loss_trade) => {
                      cash_after_last_sell = stop_loss_trade.after_operation_cash
+                 }
+                 TakeProfit(take_profit_trade) => {
+                     cash_after_last_sell = take_profit_trade.after_operation_cash
                  }
                  _ => ()
              }
@@ -89,6 +95,7 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
         StrategySimulator::new(10000.0f32,
                                start_date,
                                Box::new(KeltnerChannel::new(20, 2.0)),
+                               Box::new(NoTakeProfit),
                                Box::new(PercentageStopLoss::new(0.1)),
                                Box::new(PricePercentageFee::new(0.0035)));
 
@@ -97,6 +104,7 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
         StrategySimulator::new(10000.0f32,
                                start_date,
                                Box::new(GrowingEmaStrategy::with_separate_buy_sell_ema(44, 26, 0.0, -19.0)), // 20.0, -10.0
+                               Box::new(PercentageTakeProfit::new(1.5)),
                                Box::new(PercentageStopLoss::new(0.1)),
                                Box::new(PricePercentageFee::new(0.0035)));
 
@@ -104,6 +112,7 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
         StrategySimulator::new(10000.0f32,
                                start_date,
                                Box::new(RsiStrategy::new(13, 30.0, 70.0)),
+                               Box::new(NoTakeProfit),
                                Box::new(PercentageStopLoss::new(0.1)),
                                Box::new(PricePercentageFee::new(0.0035)));
 
@@ -111,6 +120,7 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
         StrategySimulator::new(10000.0f32,
                                start_date,
                                Box::new(MACDStrategy::default()),
+                               Box::new(NoTakeProfit),
                                Box::new(PercentageStopLoss::new(0.1)),
                                Box::new(PricePercentageFee::new(0.0035)));
 
@@ -118,6 +128,7 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
         StrategySimulator::new(10000.0f32,
                                start_date,
                                Box::new(MACDDivergenceStrategy::default()),
+                               Box::new(NoTakeProfit),
                                Box::new(PercentageStopLoss::new(0.1)),
                                Box::new(PricePercentageFee::new(0.0035)));
 
@@ -131,6 +142,7 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
     let mut buy_operation = vec![];
     let mut sell_operation = vec![];
     let mut stop_loss_operation = vec![];
+    let mut take_profit_operation = vec![];
     let mut previous_date: Option<StockPriceInfo> = None;
 
 
@@ -157,6 +169,10 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
                     stop_loss_operation.push(vec![index as f32, stop_loss_trade.price]);
                     cash_after_last_sell = stop_loss_trade.after_operation_cash
                 }
+                TakeProfit(take_profit_trade) => {
+                    take_profit_operation.push(vec![index as f32, take_profit_trade.price]);
+                    cash_after_last_sell = take_profit_trade.after_operation_cash
+                }
             }
         }
 
@@ -182,7 +198,8 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
         //.series(Line::new().line_style(LineStyle::new().color("blue")).data(lower_band_vec))
         .series(series::Scatter::new().item_style(ItemStyle::new().color("green")).symbol_size(20).data(buy_operation))
         .series(series::Scatter::new().item_style(ItemStyle::new().color("red")).symbol_size(20).data(sell_operation))
-        .series(series::Scatter::new().item_style(ItemStyle::new().color("yellow")).symbol_size(20).data(stop_loss_operation));
+        .series(series::Scatter::new().item_style(ItemStyle::new().color("yellow")).symbol_size(20).data(stop_loss_operation))
+        .series(series::Scatter::new().item_style(ItemStyle::new().color("blue")).symbol_size(20).data(take_profit_operation));
 
 
     let mut renderer = ImageRenderer::new(5000, 4000);
@@ -234,13 +251,13 @@ fn bucket_values(values: Vec<f32>, window: f32) -> HashMap<i32, Vec<f32>> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("Number of threads {:?}", current_num_threads());
+    /*println!("Number of threads {:?}", current_num_threads());
     let start = Instant::now();
     grid_search_growing_ema();
     let duration = start.elapsed();
-    println!("Time elapsed: {:?}", duration);
+    println!("Time elapsed: {:?}", duration);*/
 
-    /*let map = process_directory(Path::new("nasdaq"), "XTB", NaiveDate::from_ymd(2019, 11, 1));
+    let map = process_directory(Path::new("nasdaq"), "XTB", NaiveDate::from_ymd(2019, 11, 1));
     let mut vec_tuple: Vec<(String, f32)> = map.into_iter().collect();
     vec_tuple.sort_by(|a,b| b.1.partial_cmp(&a.1).unwrap());
     for (ticker, accumulated_cash) in vec_tuple.iter() {
@@ -254,15 +271,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("No buy/sell operation in {} tickers", no_data);
     let ROIs: Vec<f32> = vec_tuple.iter().map(|x| x.1).collect();
     let monte_carlo_result = monte_carlo_simulation(ROIs, 20000, 5);
-    monte_carlo_result.save_to_csv("monte_carlo_simulation.csv"); */
+    monte_carlo_result.save_to_csv("monte_carlo_simulation.csv");
     Ok(())
 }
 
 fn grid_search_growing_ema() -> f32 {
     let buy_ema_length_param = Parameter::new(1.0, 75.0, 1.0);
     let sell_ema_length_param = Parameter::new(1.0, 75.0, 1.0);
-    let buy_inclination_param = Parameter::new(0.0, 1.0, 1.0);
-    let sell_inclination_param = Parameter::new(-20.0, 0.0, 1.0);
+    let buy_inclination_param = Parameter::new(0.0, 0.0, 1.0);
+    let sell_inclination_param = Parameter::new(0.0, 0.0, 1.0);
 
     let search = GridSearch::new(
         vec![buy_ema_length_param, sell_ema_length_param, buy_inclination_param, sell_inclination_param]);
