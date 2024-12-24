@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package arima_connector;
+
+service ArimaService {
+  rpc Forecast (ForecastRequest) returns (ForecastResponse);
+}
+
+message ForecastRequest {
+  repeated double time_series = 1;
+  int32 steps = 2;
+}
+
+message ForecastResponse {
+  repeated double forecast = 1;
+}

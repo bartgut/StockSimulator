@@ -24,6 +24,7 @@ use crate::grid_search::parameter::Parameter;
 use crate::results_statistics::monte_carlo::monte_carlo_simulation;
 use crate::stock_data_reader::stock_data_reader::{get_ticker_files, read_from_file, StockPriceInfo};
 use crate::stop_loss_strategy::PercentageStopLoss;
+use crate::strategies::arima::ArimaStrategy;
 use crate::strategies::growing_ema_investing_strategy::GrowingEmaStrategy;
 use crate::strategy_simulator::StrategySimulator;
 use crate::strategy_simulator::TradeResult::{Buy, Sell, StopLoss, TakeProfit};
@@ -99,6 +100,14 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
                                Box::new(PercentageStopLoss::new(0.1)),
                                Box::new(PricePercentageFee::new(0.0035)));
 
+    let mut arima_simulator =
+        StrategySimulator::new(10000.0f32,
+                               start_date,
+                               Box::new(ArimaStrategy::new()), // 20.0, -10.0
+                               Box::new(PercentageTakeProfit::new(1.5)),
+                               Box::new(PercentageStopLoss::new(0.1)),
+                               Box::new(PricePercentageFee::new(0.0035)));
+
 
     let mut growing_ema_simulator =
         StrategySimulator::new(10000.0f32,
@@ -157,7 +166,8 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
         //let operations_performed = macd_strategy_simulator.next(day, &previous_date);
         //let operations_performed = growing_ema_simulator.next(day, &previous_date);
         //let operations_performed = keltner_channel_simulator.next(day, &previous_date);
-        let operations_performed = growing_ema_simulator.next(day, &previous_date);
+        //let operations_performed = growing_ema_simulator.next(day, &previous_date);
+        let operations_performed = arima_simulator.next(day, &previous_date);
         for operation_performed in operations_performed {
             match operation_performed {
                 Buy(buy_trade) => buy_operation.push(vec![index as f32, buy_trade.price]),

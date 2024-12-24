@@ -13,3 +13,9 @@ itertools = "0.13.0"
 ringbuf = "0.4.4"
 rand = "0.8.5"
 arima = "0.3.0"
+tonic = "0.12.3"
+prost = "0.13.4"
+tokio = "1.42.0"
+
+[build-dependencies]
+tonic-build = "0.12.3"
