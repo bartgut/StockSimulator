@@ -261,13 +261,10 @@ fn bucket_values(values: Vec<f32>, window: f32) -> HashMap<i32, Vec<f32>> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    /*println!("Number of threads {:?}", current_num_threads());
     let start = Instant::now();
-    grid_search_growing_ema();
-    let duration = start.elapsed();
-    println!("Time elapsed: {:?}", duration);*/
+    /*grid_search_growing_ema();*/
 
-    let map = process_directory(Path::new("nasdaq"), "XTB", NaiveDate::from_ymd(2019, 11, 1));
+    let map = process_directory(Path::new("nasdaq"), "TEST", NaiveDate::from_ymd(2019, 11, 1));
     let mut vec_tuple: Vec<(String, f32)> = map.into_iter().collect();
     vec_tuple.sort_by(|a,b| b.1.partial_cmp(&a.1).unwrap());
     for (ticker, accumulated_cash) in vec_tuple.iter() {
@@ -282,6 +279,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let ROIs: Vec<f32> = vec_tuple.iter().map(|x| x.1).collect();
     let monte_carlo_result = monte_carlo_simulation(ROIs, 20000, 5);
     monte_carlo_result.save_to_csv("monte_carlo_simulation.csv");
+
+    let duration = start.elapsed();
+    println!("Time elapsed: {:?}", duration);
     Ok(())
 }
 

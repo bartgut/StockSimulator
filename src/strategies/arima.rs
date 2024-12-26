@@ -16,6 +16,7 @@ pub struct ArimaStrategy {
 }
 
 pub struct ArimaResult {
+    close_price: f32,
     forecast: f32
 }
 
@@ -40,7 +41,6 @@ impl ArimaStrategy {
 
 impl InvestingStrategy<ArimaResult> for ArimaStrategy {
     fn calculation(&mut self, stock_price_info: &StockPriceInfo, yesterday: &Option<StockPriceInfo>) -> ArimaResult {
-        self.history.push(stock_price_info.close as f64);
         let res = self.tokyo_runtime.block_on(
             async {
                 self.client.forecast(ForecastRequest {
@@ -49,24 +49,32 @@ impl InvestingStrategy<ArimaResult> for ArimaStrategy {
                 }).await
             }
         );
+        self.history.push(stock_price_info.close as f64);
         let res_expected = res.expect("Fatal error");
+        let yesterday_close_price = yesterday.clone().map(|u| u.close).unwrap_or(0.0);
 
         if let Some(forecast) = res_expected.into_inner().forecast.get(0) {
             ArimaResult {
+                close_price: yesterday_close_price,
                 forecast: forecast.clone() as f32
             }
         } else {
             ArimaResult {
-                forecast: 0.0
+                forecast: 0.0,
+                close_price: yesterday_close_price
             }
         }
     }
 
     fn buy_signal(&self, stock_price_info: &StockPriceInfo, indicator: &ArimaResult) -> Option<f32> {
-        None
+        if indicator.forecast > indicator.close_price {
+            Some(stock_price_info.open)
+        } else {
+            None
+        }
     }
 
-    fn sell_signal(&self, stock_price_info: &StockPriceInfo, indicator: &ArimaResult) -> Option<f32> {
-        None
+    fn sell_signal(&self, stock_price_info: &StockPriceInfo, _: &ArimaResult) -> Option<f32> {
+        Some(stock_price_info.close)
     }
 }
