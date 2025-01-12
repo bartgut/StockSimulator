@@ -4,3 +4,4 @@ pub mod rsi_strategy;
 pub mod macd_strategy;
 pub mod macd_divergence_strategy;
 pub mod arima;
+pub mod ema_long_term_trend;

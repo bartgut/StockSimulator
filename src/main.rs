@@ -23,8 +23,9 @@ use crate::grid_search::grid_search::GridSearch;
 use crate::grid_search::parameter::Parameter;
 use crate::results_statistics::monte_carlo::monte_carlo_simulation;
 use crate::stock_data_reader::stock_data_reader::{get_ticker_files, read_from_file, StockPriceInfo};
-use crate::stop_loss_strategy::PercentageStopLoss;
+use crate::stop_loss_strategy::{NoStopLoss, PercentageStopLoss};
 use crate::strategies::arima::ArimaStrategy;
+use crate::strategies::ema_long_term_trend::EmaLongTermTrendStrategy;
 use crate::strategies::growing_ema_investing_strategy::GrowingEmaStrategy;
 use crate::strategy_simulator::StrategySimulator;
 use crate::strategy_simulator::TradeResult::{Buy, Sell, StopLoss, TakeProfit};
@@ -100,13 +101,13 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
                                Box::new(PercentageStopLoss::new(0.1)),
                                Box::new(PricePercentageFee::new(0.0035)));
 
-    let mut arima_simulator =
+    /*let mut arima_simulator =
         StrategySimulator::new(10000.0f32,
                                start_date,
                                Box::new(ArimaStrategy::new()), // 20.0, -10.0
                                Box::new(PercentageTakeProfit::new(1.5)),
                                Box::new(PercentageStopLoss::new(0.1)),
-                               Box::new(PricePercentageFee::new(0.0035)));
+                               Box::new(PricePercentageFee::new(0.0035)));*/
 
 
     let mut growing_ema_simulator =
@@ -115,6 +116,14 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
                                Box::new(GrowingEmaStrategy::with_separate_buy_sell_ema(44, 26, 0.0, -19.0)), // 20.0, -10.0
                                Box::new(PercentageTakeProfit::new(1.5)),
                                Box::new(PercentageStopLoss::new(0.1)),
+                               Box::new(PricePercentageFee::new(0.0035)));
+
+    let mut ema_long_term_trend_simulator =
+        StrategySimulator::new(10000.0f32,
+                               start_date,
+                               Box::new(EmaLongTermTrendStrategy::new(200, 0.1, 0.0)),
+                               Box::new(NoTakeProfit),
+                               Box::new(NoStopLoss),
                                Box::new(PricePercentageFee::new(0.0035)));
 
     let mut rsi_strategy =
@@ -143,7 +152,7 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
 
     let mut keltner_channel = KeltnerChannel::new(20, 2.0);
     let mut macd = Macd::default();
-    let mut ema = Ema::new(26);
+    let mut ema = Ema::new(150);
 
     let mut ema_line_vec = vec![];
     //let mut lower_band_vec = vec![];
@@ -167,7 +176,8 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
         //let operations_performed = growing_ema_simulator.next(day, &previous_date);
         //let operations_performed = keltner_channel_simulator.next(day, &previous_date);
         //let operations_performed = growing_ema_simulator.next(day, &previous_date);
-        let operations_performed = arima_simulator.next(day, &previous_date);
+        //let operations_performed = arima_simulator.next(day, &previous_date);
+        let operations_performed = ema_long_term_trend_simulator.next(day, &previous_date);
         for operation_performed in operations_performed {
             match operation_performed {
                 Buy(buy_trade) => buy_operation.push(vec![index as f32, buy_trade.price]),
@@ -264,7 +274,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let start = Instant::now();
     /*grid_search_growing_ema();*/
 
-    let map = process_directory(Path::new("nasdaq"), "TEST", NaiveDate::from_ymd(2019, 11, 1));
+    let map = process_directory(Path::new("nasdaq"), "XTB", NaiveDate::from_ymd(2019, 11, 1));
     let mut vec_tuple: Vec<(String, f32)> = map.into_iter().collect();
     vec_tuple.sort_by(|a,b| b.1.partial_cmp(&a.1).unwrap());
     for (ticker, accumulated_cash) in vec_tuple.iter() {
