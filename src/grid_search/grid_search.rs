@@ -36,7 +36,6 @@ impl GridSearch {
 
         grid_recursive(&self.parameters, &mut values, 0, &mut f, &mut results);
 
-        // Print or return the results as needed
         for (config, result) in results.iter().clone() {
             println!("Config: {:?} => Result: {:?}", config, result);
         }

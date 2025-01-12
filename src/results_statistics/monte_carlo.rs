@@ -1,7 +1,3 @@
-use charming::{Chart, series};
-use charming::component::{Axis, Legend, Title};
-use charming::element::{AxisType, ItemStyle, LineStyle};
-use charming::series::Line;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 
