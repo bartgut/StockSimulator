@@ -22,6 +22,7 @@ use crate::broker_fee::PricePercentageFee;
 use crate::grid_search::grid_search::GridSearch;
 use crate::grid_search::parameter::Parameter;
 use crate::results_statistics::monte_carlo::monte_carlo_simulation;
+use crate::results_statistics::profitable_investment::number_of_profitable_investments;
 use crate::stock_data_reader::stock_data_reader::{get_ticker_files, read_from_file, StockPriceInfo};
 use crate::stop_loss_strategy::{NoStopLoss, PercentageStopLoss};
 use crate::strategies::arima::ArimaStrategy;
@@ -60,9 +61,9 @@ fn simulate_ticker(stock_data: &Vec<StockPriceInfo>,
      let mut strategy =
          StrategySimulator::new(10000.0f32,
                                 NaiveDate::from_ymd(2019, 11, 1),
-                                Box::new(GrowingEmaStrategy::with_separate_buy_sell_ema(buy_ema_length, sell_ema_length, buy_inclination, sell_inclination)), // 20.0, -10.0
+                                Box::new(EmaLongTermTrendStrategy::new(buy_ema_length, buy_inclination, sell_inclination)), // 20.0, -10.0
                                 Box::new(NoTakeProfit),
-                                Box::new(PercentageStopLoss::new(0.1)),
+                                Box::new(NoStopLoss),
                                 Box::new(PricePercentageFee::new(0.0035)));
 
      for data in stock_data.iter() {
@@ -121,7 +122,7 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
     let mut ema_long_term_trend_simulator =
         StrategySimulator::new(10000.0f32,
                                start_date,
-                               Box::new(EmaLongTermTrendStrategy::new(200, 0.1, 0.0)),
+                               Box::new(EmaLongTermTrendStrategy::new(105, 0.15, 0.02)),
                                Box::new(NoTakeProfit),
                                Box::new(NoStopLoss),
                                Box::new(PricePercentageFee::new(0.0035)));
@@ -272,7 +273,7 @@ fn bucket_values(values: Vec<f32>, window: f32) -> HashMap<i32, Vec<f32>> {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let start = Instant::now();
-    /*grid_search_growing_ema();*/
+    //grid_search_growing_ema();
 
     let map = process_directory(Path::new("nasdaq"), "XTB", NaiveDate::from_ymd(2019, 11, 1));
     let mut vec_tuple: Vec<(String, f32)> = map.into_iter().collect();
@@ -296,10 +297,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn grid_search_growing_ema() -> f32 {
-    let buy_ema_length_param = Parameter::new(1.0, 75.0, 1.0);
-    let sell_ema_length_param = Parameter::new(1.0, 75.0, 1.0);
-    let buy_inclination_param = Parameter::new(0.0, 0.0, 1.0);
-    let sell_inclination_param = Parameter::new(0.0, 0.0, 1.0);
+    let buy_ema_length_param = Parameter::new(70.0, 200.0, 1.0);
+    let sell_ema_length_param = Parameter::new(1.0, 1.0, 1.0);
+    let buy_inclination_param = Parameter::new(0.0, 0.2, 0.01);
+    let sell_inclination_param = Parameter::new(0.0, 0.2, 0.01);
 
     let search = GridSearch::new(
         vec![buy_ema_length_param, sell_ema_length_param, buy_inclination_param, sell_inclination_param]);
@@ -321,9 +322,7 @@ fn grid_search_growing_ema() -> f32 {
                                        sell_ema_length,
                                        buy_inclination,
                                        sell_inclination);
-        let sum: f32 = res.values().sum();
-        let count = res.len() as f32;
-        sum / count
+        number_of_profitable_investments(res.values().cloned().collect(), 10000.0) as f32
     };
 
     let results = search.search(strategy);
