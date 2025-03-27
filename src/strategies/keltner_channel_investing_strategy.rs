@@ -2,9 +2,10 @@ use crate::StockPriceInfo;
 use crate::strategy_simulator::InvestingStrategy;
 use crate::technical_indicator::keltner_channel::{KeltnerChannel, KeltnerChannelResult};
 
+#[derive(Clone)]
 pub struct KeltnerChannelStrategyResult {
-    yesterday: KeltnerChannelResult,
-    today: KeltnerChannelResult
+    pub yesterday: KeltnerChannelResult,
+    pub today: KeltnerChannelResult
 }
 
 impl InvestingStrategy<KeltnerChannelStrategyResult> for KeltnerChannel {

@@ -2,6 +2,7 @@ use crate::StockPriceInfo;
 use crate::strategy_simulator::InvestingStrategy;
 use crate::technical_indicator::ema::Ema;
 
+#[derive(Clone)]
 pub struct EmaStrategyResult {
     yesterday_buy: f32,
     yesterday_sell: f32,

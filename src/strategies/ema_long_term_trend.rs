@@ -8,6 +8,7 @@ pub struct EmaLongTermTrendStrategy {
     sell_percentage_diff_from_ema: f32
 }
 
+#[derive(Clone)]
 pub struct EmaLongTermTrendResult {
     ema: f32
 }

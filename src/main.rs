@@ -4,11 +4,6 @@ use std::error::Error;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-
-use charming::{Chart, ImageRenderer, series};
-use charming::component::{Axis, Legend, Title};
-use charming::element::{AxisType, ItemStyle, LineStyle};
-use charming::series::Line;
 use chrono::NaiveDate;
 use itertools::Itertools;
 use crate::utils::vec_to_csv::SaveVecToCsv;
@@ -68,7 +63,7 @@ fn simulate_ticker(stock_data: &Vec<StockPriceInfo>,
 
      for data in stock_data.iter() {
          let operations_performed = strategy.next_today(data);
-         for operation_performed in operations_performed {
+         for operation_performed in operations_performed.trade_operations {
              match operation_performed {
                  Sell(sell_trade) => {
                      cash_after_last_sell = sell_trade.after_operation_cash
@@ -102,129 +97,42 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
                                Box::new(PercentageStopLoss::new(0.1)),
                                Box::new(PricePercentageFee::new(0.0035)));
 
-    /*let mut arima_simulator =
-        StrategySimulator::new(10000.0f32,
-                               start_date,
-                               Box::new(ArimaStrategy::new()), // 20.0, -10.0
-                               Box::new(PercentageTakeProfit::new(1.5)),
-                               Box::new(PercentageStopLoss::new(0.1)),
-                               Box::new(PricePercentageFee::new(0.0035)));*/
-
-
-    let mut growing_ema_simulator =
-        StrategySimulator::new(10000.0f32,
-                               start_date,
-                               Box::new(GrowingEmaStrategy::with_separate_buy_sell_ema(44, 26, 0.0, -19.0)), // 20.0, -10.0
-                               Box::new(PercentageTakeProfit::new(1.5)),
-                               Box::new(PercentageStopLoss::new(0.1)),
-                               Box::new(PricePercentageFee::new(0.0035)));
-
-    let mut ema_long_term_trend_simulator =
-        StrategySimulator::new(10000.0f32,
-                               start_date,
-                               Box::new(EmaLongTermTrendStrategy::new(105, 0.15, 0.02)),
-                               Box::new(NoTakeProfit),
-                               Box::new(NoStopLoss),
-                               Box::new(PricePercentageFee::new(0.0035)));
-
-    let mut rsi_strategy =
-        StrategySimulator::new(10000.0f32,
-                               start_date,
-                               Box::new(RsiStrategy::new(13, 30.0, 70.0)),
-                               Box::new(NoTakeProfit),
-                               Box::new(PercentageStopLoss::new(0.1)),
-                               Box::new(PricePercentageFee::new(0.0035)));
-
-    let mut macd_strategy_simulator =
-        StrategySimulator::new(10000.0f32,
-                               start_date,
-                               Box::new(MACDStrategy::default()),
-                               Box::new(NoTakeProfit),
-                               Box::new(PercentageStopLoss::new(0.1)),
-                               Box::new(PricePercentageFee::new(0.0035)));
-
-    let mut macd_divirgence_simulator =
-        StrategySimulator::new(10000.0f32,
-                               start_date,
-                               Box::new(MACDDivergenceStrategy::default()),
-                               Box::new(NoTakeProfit),
-                               Box::new(PercentageStopLoss::new(0.1)),
-                               Box::new(PricePercentageFee::new(0.0035)));
-
-    let mut keltner_channel = KeltnerChannel::new(20, 2.0);
-    let mut macd = Macd::default();
-    let mut ema = Ema::new(150);
-
-    let mut ema_line_vec = vec![];
-    //let mut lower_band_vec = vec![];
-    //let mut upper_band_vec = vec![];
     let mut buy_operation = vec![];
     let mut sell_operation = vec![];
     let mut stop_loss_operation = vec![];
     let mut take_profit_operation = vec![];
+    let mut strategy_results: Vec<(NaiveDate, Vec<f32>)> = vec![];
     let mut previous_date: Option<StockPriceInfo> = None;
 
 
     for (index, day) in stock_data.iter().enumerate() {
-        let keltner_channel_result =
-            keltner_channel.next(day.close, day.high, day.low, previous_date.clone().map(|u| u.close).unwrap_or(0.0f32));
-        let macd_result =
-            macd.next(day.close);
-        let ema_result = ema.next(day.close);
-
-        //let operations_performed = macd_divirgence_simulator.next(day, &previous_date);
-        //let operations_performed = macd_strategy_simulator.next(day, &previous_date);
-        //let operations_performed = growing_ema_simulator.next(day, &previous_date);
-        //let operations_performed = keltner_channel_simulator.next(day, &previous_date);
-        //let operations_performed = growing_ema_simulator.next(day, &previous_date);
-        //let operations_performed = arima_simulator.next(day, &previous_date);
-        let operations_performed = ema_long_term_trend_simulator.next(day, &previous_date);
-        for operation_performed in operations_performed {
+        let result = keltner_channel_simulator.next(day, &previous_date);
+        strategy_results.push((result.operation_date, result.strategy_params.today.into()));
+        for operation_performed in result.trade_operations {
             match operation_performed {
-                Buy(buy_trade) => buy_operation.push(vec![index as f32, buy_trade.price]),
+                Buy(buy_trade) => buy_operation.push((result.operation_date, vec![buy_trade.price])),
                 Sell(sell_trade) => {
-                    sell_operation.push(vec![index as f32, sell_trade.price]);
+                    sell_operation.push((result.operation_date, vec![sell_trade.price]));
                     cash_after_last_sell = sell_trade.after_operation_cash
                 }
                 StopLoss(stop_loss_trade) => {
-                    stop_loss_operation.push(vec![index as f32, stop_loss_trade.price]);
+                    stop_loss_operation.push((result.operation_date, vec![stop_loss_trade.price]));
                     cash_after_last_sell = stop_loss_trade.after_operation_cash
                 }
                 TakeProfit(take_profit_trade) => {
-                    take_profit_operation.push(vec![index as f32, take_profit_trade.price]);
+                    take_profit_operation.push((result.operation_date, vec![take_profit_trade.price]));
                     cash_after_last_sell = take_profit_trade.after_operation_cash
                 }
             }
         }
 
-        //ema_line_vec.push(macd_result.macd_line);
-        //upper_band_vec.push(macd_result.signal_line);
-        //lower_band_vec.push(macd_result.signal_line);
-
-        //ema_line_vec.push(keltner_channel_result.ema);
-        //upper_band_vec.push(keltner_channel_result.upper_band);
-        //lower_band_vec.push(keltner_channel_result.lower_band);
-
-        ema_line_vec.push(ema_result);
         previous_date = Some(day.clone())
     }
-    let chart = Chart::new()
-        .title(Title::new().top("Ticker"))
-        .legend(Legend::new().top("bottom"))
-        .x_axis(Axis::new().type_(AxisType::Category))
-        .y_axis(Axis::new().type_(AxisType::Value))
-        .series(Line::new().data(stock_data.iter().map(|x| x.close).collect()))
-        .series(Line::new().data(ema_line_vec))
-        //.series(Line::new().line_style(LineStyle::new().color("blue")).data(upper_band_vec))
-        //.series(Line::new().line_style(LineStyle::new().color("blue")).data(lower_band_vec))
-        .series(series::Scatter::new().item_style(ItemStyle::new().color("green")).symbol_size(20).data(buy_operation))
-        .series(series::Scatter::new().item_style(ItemStyle::new().color("red")).symbol_size(20).data(sell_operation))
-        .series(series::Scatter::new().item_style(ItemStyle::new().color("yellow")).symbol_size(20).data(stop_loss_operation))
-        .series(series::Scatter::new().item_style(ItemStyle::new().color("blue")).symbol_size(20).data(take_profit_operation));
-
-
-    let mut renderer = ImageRenderer::new(5000, 4000);
-    let res = renderer.save(&chart, format!("ticker_images/{}.svg", file_name_str));
+    buy_operation.save_to_csv(format!("ticker_data/{}_keltner_buy_signal.csv", file_name_str).as_str());
+    sell_operation.save_to_csv(format!("ticker_data/{}_keltner_sell_signal.csv", file_name_str).as_str());
+    stop_loss_operation.save_to_csv(format!("ticker_data/{}_keltner_stop_loss_signal.csv", file_name_str).as_str());
+    take_profit_operation.save_to_csv(format!("ticker_data/{}_keltner_take_profit.csv", file_name_str).as_str());
+    strategy_results.save_to_csv(format!("ticker_data/{}_keltner.csv", file_name_str).as_str());
     Ok(cash_after_last_sell)
 }
 
@@ -312,7 +220,7 @@ fn grid_search_growing_ema() -> f32 {
             .collect();
 
     let strategy = |params: &[f32]| -> f32 {
-        let buy_ema_length: usize= params[0] as usize;
+        let buy_ema_length: usize = params[0] as usize;
         let sell_ema_length: usize = params[1] as usize;
         let buy_inclination: f32 = params[2];
         let sell_inclination: f32 = params[3];

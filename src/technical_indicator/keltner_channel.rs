@@ -7,10 +7,17 @@ pub struct KeltnerChannel {
     atr: Atr
 }
 
+#[derive(Clone)]
 pub struct KeltnerChannelResult {
     pub ema: f32,
     pub upper_band: f32,
     pub lower_band: f32
+}
+
+impl Into<Vec<f32>> for KeltnerChannelResult {
+    fn into(self) -> Vec<f32> {
+        vec![self.lower_band, self.ema, self.upper_band]
+    }
 }
 
 impl KeltnerChannel {

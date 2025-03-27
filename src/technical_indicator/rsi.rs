@@ -7,6 +7,7 @@ pub struct Rsi {
 
 }
 
+#[derive(Clone)]
 pub struct RsiResult {
     pub rsi_line: f32
 }

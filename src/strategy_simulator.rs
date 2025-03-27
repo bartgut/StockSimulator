@@ -24,11 +24,15 @@ pub struct StrategySimulator<T> {
 }
 
 pub struct Trade {
-    pub operation_date: NaiveDate,
     pub price: f32,
     pub after_operation_cash: f32
 }
 
+pub struct StrategyResult<T> {
+    pub operation_date: NaiveDate,
+    pub strategy_params: T,
+    pub trade_operations: Vec<TradeResult>
+}
 pub enum TradeResult {
     Buy(Trade),
     Sell(Trade),
@@ -36,7 +40,7 @@ pub enum TradeResult {
     TakeProfit(Trade)
 }
 
-impl<T> StrategySimulator<T>  {
+impl<T: Clone> StrategySimulator<T>  {
     pub fn new(invested_cash: f32,
                start_date: NaiveDate,
                strategy: Box<dyn InvestingStrategy<T>>,
@@ -55,11 +59,11 @@ impl<T> StrategySimulator<T>  {
         }
     }
 
-    pub fn next_today(&mut self, today: &StockPriceInfo) -> Vec<TradeResult> {
+    pub fn next_today(&mut self, today: &StockPriceInfo) -> StrategyResult<T> {
         self.next(today, &None)
     }
 
-    pub fn next(&mut self, today: &StockPriceInfo, yesterday: &Option<StockPriceInfo>) -> Vec<TradeResult> {
+    pub fn next(&mut self, today: &StockPriceInfo, yesterday: &Option<StockPriceInfo>) -> StrategyResult<T> {
         let metric_result = self.strategy.calculation(&today, yesterday);
         let mut operations_performed = vec![];
         if today.date >= self.start_date {
@@ -68,7 +72,6 @@ impl<T> StrategySimulator<T>  {
                     self.sell_operation(sell_price);
                     //println!("{}: Selling at {}, cash: {}", today.date, sell_price, self.cash);
                     operations_performed.push(Sell(Trade {
-                        operation_date: today.date.clone(),
                         price: sell_price,
                         after_operation_cash: self.cash
                     }));
@@ -76,7 +79,6 @@ impl<T> StrategySimulator<T>  {
                 if let Some(take_profit_price) = self.take_profit.should_trigger_take_profit(today, self.last_buy_price) {
                     self.sell_operation(take_profit_price);
                     operations_performed.push(TakeProfit(Trade {
-                        operation_date: today.date.clone(),
                         price: take_profit_price,
                         after_operation_cash: self.cash
                     }))
@@ -85,7 +87,6 @@ impl<T> StrategySimulator<T>  {
                     self.sell_operation(stop_loss_price);
                     //println!("{}: Stop loss triggered at {}, cash: {}", today.date, stop_loss_price, self.cash);
                     operations_performed.push(StopLoss(Trade {
-                        operation_date: today.date.clone(),
                         price: stop_loss_price,
                         after_operation_cash: self.cash,
                     }))
@@ -96,14 +97,17 @@ impl<T> StrategySimulator<T>  {
                     self.buy_operation(buy_price);
                     //println!("{}: Buying at {} number of shares: {}, cash left: {}", today.date, buy_price, self.current_position, self.cash);
                     operations_performed.push(Buy(Trade {
-                        operation_date: today.date.clone(),
                         price: buy_price,
                         after_operation_cash: self.cash,
                     }))
                 }
             }
         }
-        operations_performed
+        StrategyResult {
+            operation_date: today.date.clone(),
+            strategy_params: metric_result.clone(),
+            trade_operations: operations_performed
+        }
     }
 
     fn sell_operation(&mut self, sell_price: f32) {
