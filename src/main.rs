@@ -32,6 +32,7 @@ use crate::strategies::rsi_strategy::RsiStrategy;
 use crate::take_profit_strategy::{NoTakeProfit, PercentageTakeProfit};
 use crate::technical_indicator::ema::Ema;
 use crate::technical_indicator::macd::Macd;
+use crate::technical_indicator::percent_off_ath::PercentOffAth;
 
 
 mod strategy_simulator;
@@ -82,6 +83,20 @@ fn simulate_ticker(stock_data: &Vec<StockPriceInfo>,
  }
 
 
+fn generate_indicator_data(file_path: &Path) {
+    let file_name_str = file_path.file_name().unwrap().to_str().unwrap();
+    println!("Generating data for {}", file_name_str);
+    let mut stock_data = read_from_file(file_path);
+
+    let mut technical_indicator = PercentOffAth::new();
+    let mut data: Vec<(NaiveDate, Vec<f32>)> = vec![];
+    for day in stock_data.iter() {
+        data.push((day.date, vec![technical_indicator.next(day.high)]))
+    }
+
+    data.save_to_csv(format!("ticker_data/{}_keltner.csv", file_name_str).as_str()).unwrap()
+}
+
 fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
     let mut cash_after_last_sell: f32 = 0.0;
     let file_name_str = file_path.file_name().unwrap().to_str().unwrap();
@@ -105,7 +120,7 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
     let mut previous_date: Option<StockPriceInfo> = None;
 
 
-    for (index, day) in stock_data.iter().enumerate() {
+    for day in stock_data.iter() {
         let result = keltner_channel_simulator.next(day, &previous_date);
         strategy_results.push((result.operation_date, result.strategy_params.today.into()));
         for operation_performed in result.trade_operations {
@@ -128,10 +143,10 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
 
         previous_date = Some(day.clone())
     }
-    buy_operation.save_to_csv(format!("ticker_data/{}_keltner_buy_signal.csv", file_name_str).as_str());
-    sell_operation.save_to_csv(format!("ticker_data/{}_keltner_sell_signal.csv", file_name_str).as_str());
-    stop_loss_operation.save_to_csv(format!("ticker_data/{}_keltner_stop_loss_signal.csv", file_name_str).as_str());
-    take_profit_operation.save_to_csv(format!("ticker_data/{}_keltner_take_profit.csv", file_name_str).as_str());
+    buy_operation.save_to_csv(format!("ticker_data/signals/{}_keltner_buy_signal.csv", file_name_str).as_str());
+    sell_operation.save_to_csv(format!("ticker_data/signals/{}_keltner_sell_signal.csv", file_name_str).as_str());
+    stop_loss_operation.save_to_csv(format!("ticker_data/signals/{}_keltner_stop_loss_signal.csv", file_name_str).as_str());
+    take_profit_operation.save_to_csv(format!("ticker_data/signals/{}_keltner_take_profit.csv", file_name_str).as_str());
     strategy_results.save_to_csv(format!("ticker_data/{}_keltner.csv", file_name_str).as_str());
     Ok(cash_after_last_sell)
 }
@@ -151,6 +166,14 @@ fn process_directory(dir_path: &Path, brokage_house: &str, start_date: NaiveDate
         .expect("sth went wrong")
         .into_inner()
         .unwrap()
+}
+
+fn process_directory_data_generation(dir_path: &Path, brokage_house: &str) {
+    let files = get_ticker_files(dir_path, brokage_house);
+
+    files.par_iter().for_each(|filepath| {
+        generate_indicator_data(filepath)
+    })
 }
 
 fn process_directory_v2(data: &HashMap<String, Vec<StockPriceInfo>>,
@@ -182,6 +205,7 @@ fn bucket_values(values: Vec<f32>, window: f32) -> HashMap<i32, Vec<f32>> {
 fn main() -> Result<(), Box<dyn Error>> {
     let start = Instant::now();
     //grid_search_growing_ema();
+    //process_directory_data_generation(Path::new("nasdaq"), "XTB");
 
     let map = process_directory(Path::new("nasdaq"), "XTB", NaiveDate::from_ymd(2019, 11, 1));
     let mut vec_tuple: Vec<(String, f32)> = map.into_iter().collect();
