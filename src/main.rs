@@ -21,6 +21,7 @@ use crate::results_statistics::profitable_investment::number_of_profitable_inves
 use crate::stock_data_reader::stock_data_reader::{get_ticker_files, read_from_file, StockPriceInfo};
 use crate::stop_loss_strategy::{NoStopLoss, PercentageStopLoss};
 use crate::strategies::arima::ArimaStrategy;
+use crate::strategies::ema_crossover_strategy::EmaCrossoverStrategy;
 use crate::strategies::ema_long_term_trend::EmaLongTermTrendStrategy;
 use crate::strategies::growing_ema_investing_strategy::GrowingEmaStrategy;
 use crate::strategy_simulator::StrategySimulator;
@@ -52,14 +53,15 @@ fn simulate_ticker(stock_data: &Vec<StockPriceInfo>,
                     buy_ema_length: usize,
                     sell_ema_length: usize,
                     buy_inclination: f32,
-                    sell_inclination: f32) -> f32 {
+                    sell_inclination: f32,
+                    stop_loss_param: f32) -> f32 {
      let mut cash_after_last_sell: f32 = 0.0;
      let mut strategy =
          StrategySimulator::new(10000.0f32,
                                 NaiveDate::from_ymd(2019, 11, 1),
                                 Box::new(EmaLongTermTrendStrategy::new(buy_ema_length, buy_inclination, sell_inclination)), // 20.0, -10.0
                                 Box::new(NoTakeProfit),
-                                Box::new(NoStopLoss),
+                                Box::new(PercentageStopLoss::new(stop_loss_param)),
                                 Box::new(PricePercentageFee::new(0.0035)));
 
      for data in stock_data.iter() {
@@ -107,9 +109,9 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
     let mut keltner_channel_simulator =
         StrategySimulator::new(10000.0f32,
                                start_date,
-                               Box::new(KeltnerChannel::new(20, 2.0)),
+                               Box::new(KeltnerChannel::new(20, 3.0)),
                                Box::new(NoTakeProfit),
-                               Box::new(PercentageStopLoss::new(0.1)),
+                               Box::new(PercentageStopLoss::new(0.5)),
                                Box::new(PricePercentageFee::new(0.0035)));
 
     let mut buy_operation = vec![];
@@ -180,12 +182,13 @@ fn process_directory_v2(data: &HashMap<String, Vec<StockPriceInfo>>,
                            buy_ema_length: usize,
                            sell_ema_length: usize,
                            buy_inclination: f32,
-                           sell_inclination: f32) -> HashMap<String, f32> {
+                           sell_inclination: f32,
+                           stop_loss_param: f32) -> HashMap<String, f32> {
     let mut result_map: Arc<Mutex<HashMap<String, f32>>> = Arc::new(Mutex::new(HashMap::new()));
 
     data.par_iter().for_each(|(file_name, stock_data)| {
         let result = simulate_ticker(
-            stock_data, buy_ema_length, sell_ema_length, buy_inclination, sell_inclination);
+            stock_data, buy_ema_length, sell_ema_length, buy_inclination, sell_inclination, stop_loss_param);
         let mut map_unlocked = result_map.lock().unwrap();
         map_unlocked.insert(file_name.clone(), result);
     });
@@ -233,9 +236,10 @@ fn grid_search_growing_ema() -> f32 {
     let sell_ema_length_param = Parameter::new(1.0, 1.0, 1.0);
     let buy_inclination_param = Parameter::new(0.0, 0.2, 0.01);
     let sell_inclination_param = Parameter::new(0.0, 0.2, 0.01);
+    let stop_loss_param = Parameter::new(0.1, 0.5, 0.05);
 
     let search = GridSearch::new(
-        vec![buy_ema_length_param, sell_ema_length_param, buy_inclination_param, sell_inclination_param]);
+        vec![buy_ema_length_param, sell_ema_length_param, buy_inclination_param, sell_inclination_param, stop_loss_param]);
 
     let files = get_ticker_files(Path::new("nasdaq"), "XTB");
     let loaded_files: HashMap<String, Vec<StockPriceInfo>> =
@@ -248,15 +252,18 @@ fn grid_search_growing_ema() -> f32 {
         let sell_ema_length: usize = params[1] as usize;
         let buy_inclination: f32 = params[2];
         let sell_inclination: f32 = params[3];
+        let stop_loss_param: f32 = params[4];
 
         let res = process_directory_v2(&loaded_files,
                                        buy_ema_length,
                                        sell_ema_length,
                                        buy_inclination,
-                                       sell_inclination);
+                                       sell_inclination,
+                                       stop_loss_param);
         number_of_profitable_investments(res.values().cloned().collect(), 10000.0) as f32
     };
 
+    println!("Starting grid search");
     let results = search.search(strategy);
     results.save_to_csv("growing_ema_grid_search.csv");
     0.0
