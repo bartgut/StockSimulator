@@ -14,6 +14,7 @@ use serde::Deserialize;
 use crate::brokage::brokage_stocks::get_available_stocks;
 
 use crate::broker_fee::PricePercentageFee;
+use crate::ChainedStrategy::ChainedInvestingStrategy;
 use crate::grid_search::grid_search::GridSearch;
 use crate::grid_search::parameter::Parameter;
 use crate::results_statistics::monte_carlo::monte_carlo_simulation;
@@ -48,6 +49,7 @@ mod brokage;
 mod grid_search;
 mod stock_data_reader;
 mod take_profit_strategy;
+mod ChainedStrategy;
 
 fn simulate_ticker(stock_data: &Vec<StockPriceInfo>,
                     buy_ema_length: usize,
@@ -109,7 +111,7 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
     let mut keltner_channel_simulator =
         StrategySimulator::new(10000.0f32,
                                start_date,
-                               Box::new(KeltnerChannel::new(20, 3.0)),
+                               Box::new(ChainedInvestingStrategy::new(KeltnerChannel::new(20, 3.0), EmaCrossoverStrategy::new(20, 50))),
                                Box::new(NoTakeProfit),
                                Box::new(PercentageStopLoss::new(0.5)),
                                Box::new(PricePercentageFee::new(0.0035)));
@@ -124,7 +126,7 @@ fn process_ticker(file_path: &Path, start_date: NaiveDate) -> io::Result<f32> {
 
     for day in stock_data.iter() {
         let result = keltner_channel_simulator.next(day, &previous_date);
-        strategy_results.push((result.operation_date, result.strategy_params.today.into()));
+        strategy_results.push((result.operation_date, result.strategy_params.0.today.into()));
         for operation_performed in result.trade_operations {
             match operation_performed {
                 Buy(buy_trade) => buy_operation.push((result.operation_date, vec![buy_trade.price])),
